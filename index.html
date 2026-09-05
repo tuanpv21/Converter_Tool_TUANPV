@@ -247,33 +247,57 @@ def transpile_sql(sql_code, read_d, write_d):
     function regexConvert(sql, mode) {
       let res = sql;
       if (mode === 'presto2spark') {
+        // Types
         res = res.replace(/\bVARCHAR\b/gi, 'STRING');
         res = res.replace(/\bVARBINARY\b/gi, 'BINARY');
+        res = res.replace(/\bJSON\b/gi, 'STRING');
+        // Dates & Timestamps
+        res = res.replace(/\bdate_parse\s*\(\s*([^,]+?)\s*,\s*['"]%Y-%m-%d['"]\s*\)/gi, 'to_date($1, "yyyy-MM-dd")');
+        res = res.replace(/\bdate_parse\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'to_timestamp($1, $2)');
+        res = res.replace(/\bformat_datetime\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_format($1, $2)');
+        res = res.replace(/\bnow\s*\(\s*\)/gi, 'current_timestamp()');
+        res = res.replace(/\bcurrent_date\b(?!\s*\()/gi, 'current_date()');
+        res = res.replace(/\bdate_add\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_add($2, $1)');
+        res = res.replace(/\bdate_add\s*\(\s*['"]month['"]\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'add_months($2, $1)');
+        res = res.replace(/\bdate_diff\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'datediff($2, $1)');
+        // JSON Functions
         res = res.replace(/\bjson_extract_scalar\s*\(/gi, 'get_json_object(');
         res = res.replace(/\bjson_extract\s*\(/gi, 'get_json_object(');
-        res = res.replace(/\bcardinality\s*\(/gi, 'size(');
-        res = res.replace(/\bapprox_distinct\s*\(/gi, 'approx_count_distinct(');
+        // Strings & Regex
         res = res.replace(/\bstrpos\s*\(/gi, 'instr(');
-        res = res.replace(/\bnow\s*\(\s*\)/gi, 'current_timestamp()');
-        res = res.replace(/s3:\/\//g, 's3a://');
-        res = res.replace(/\bdate_diff\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'datediff($2, $1)');
-        res = res.replace(/\bdate_add\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_add($2, $1)');
-        res = res.replace(/\bdate_parse\s*\(\s*([^,]+?)\s*,\s*['"]%Y-%m-%d['"]\s*\)/gi, 'to_date($1, "yyyy-MM-dd")');
+        res = res.replace(/\bcodepoint\s*\(/gi, 'ascii(');
+        res = res.replace(/\bregexp_like\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, '$1 RLIKE $2');
+        // Array / Map
+        res = res.replace(/\bcardinality\s*\(/gi, 'size(');
         res = res.replace(/\bcontains\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'array_contains($1, $2)');
         res = res.replace(/\barray_join\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'concat_ws($2, $1)');
+        // Aggregates & Utils
+        res = res.replace(/\bapprox_distinct\s*\(/gi, 'approx_count_distinct(');
+        res = res.replace(/\barbitrary\s*\(/gi, 'first(');
+        res = res.replace(/s3:\/\//g, 's3a://');
       } else {
+        // Types
         res = res.replace(/\bSTRING\b/gi, 'VARCHAR');
-        res = res.replace(/\bget_json_object\s*\(/gi, 'json_extract_scalar(');
-        res = res.replace(/\bsize\s*\(/gi, 'cardinality(');
-        res = res.replace(/\bapprox_count_distinct\s*\(/gi, 'approx_distinct(');
-        res = res.replace(/\binstr\s*\(/gi, 'strpos(');
-        res = res.replace(/\bcurrent_timestamp\s*\(\s*\)/gi, 'now()');
-        res = res.replace(/s3a:\/\//g, 's3://');
-        res = res.replace(/\bdatediff\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_diff('day', $2, $1)");
-        res = res.replace(/\bdate_add\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_add('day', $2, $1)");
+        // Dates & Timestamps
         res = res.replace(/\bto_date\s*\(\s*([^,]+?)\s*,\s*['"]yyyy-MM-dd['"]\s*\)/gi, "date_parse($1, '%Y-%m-%d')");
+        res = res.replace(/\bto_date\s*\(\s*([^,]+?)\s*\)/gi, "date_parse($1, '%Y-%m-%d')");
+        res = res.replace(/\bto_timestamp\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_parse($1, $2)');
+        res = res.replace(/\bdate_format\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'format_datetime($1, $2)');
+        res = res.replace(/\bcurrent_timestamp\s*\(\s*\)/gi, 'now()');
+        res = res.replace(/\bdate_add\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_add('day', $2, $1)");
+        res = res.replace(/\badd_months\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_add('month', $2, $1)");
+        res = res.replace(/\bdatediff\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_diff('day', $2, $1)");
+        // JSON Functions
+        res = res.replace(/\bget_json_object\s*\(/gi, 'json_extract_scalar(');
+        // String
+        res = res.replace(/\binstr\s*\(/gi, 'strpos(');
+        // Array / Map
+        res = res.replace(/\bsize\s*\(/gi, 'cardinality(');
         res = res.replace(/\barray_contains\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'contains($1, $2)');
         res = res.replace(/\bconcat_ws\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'array_join($2, $1)');
+        // Aggregates & Utils
+        res = res.replace(/\bapprox_count_distinct\s*\(/gi, 'approx_distinct(');
+        res = res.replace(/s3a:\/\//g, 's3://');
       }
       return res;
     }
