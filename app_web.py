@@ -33,6 +33,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "auth.db")
 # Tài khoản mặc định từ biến môi trường (Ưu tiên khi deploy lên Cloud)
 DEFAULT_ADMIN_USER = os.environ.get("ADMIN_USERNAME", "admin")
 DEFAULT_ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "PublicBank@2026")
+DEFAULT_ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "Tuanpv@2026")
 
 # ==========================================
 # 1. DATABASE & AUTHENTICATION HELPERS
@@ -148,6 +149,7 @@ HTML_PAGE = """<!DOCTYPE html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Presto ⇄ Spark SQL Transpiler - Public Bank Vietnam</title>
+  <title>Presto ⇄ Spark SQL Transpiler - TUANPV</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0b1329; color: #e2e8f0; min-height: 100vh; display: flex; flex-direction: column; }

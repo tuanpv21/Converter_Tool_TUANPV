@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Desktop GUI Tool: Presto <-> Spark SQL Bi-directional Transpiler (Tkinter)
@@ -48,6 +48,7 @@ class BiDirectionalSQLApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("SQL Transpiler Tool 2 Chiều: Presto <-> Spark SQL - Public Bank Vietnam")
+        self.title("SQL Transpiler Tool 2 Chiều: Presto <-> Spark SQL - TUANPV")
         self.geometry("1140x700")
         self.minsize(850, 520)
 

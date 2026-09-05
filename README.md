@@ -38,6 +38,7 @@ Công cụ chuyên dụng giải quyết bài toán chuyển đổi mã nguồn 
 | :--- | :--- | :--- |
 | **Username** | `admin` | Tùy biến qua biến môi trường `ADMIN_USERNAME` |
 | **Password** | `PublicBank@2026` | Tùy biến qua biến môi trường `ADMIN_PASSWORD` hoặc đổi trong Web |
+| **Password** | `Tuanpv@2026` | Tùy biến qua biến môi trường `ADMIN_PASSWORD` hoặc đổi trong Web |
 
 > Sau khi đăng nhập, bạn có thể bấm nút **`🔑 Đổi MK`** ở góc trên bên phải để đổi sang mật khẩu cá nhân.
 
@@ -139,6 +140,7 @@ Khi chạy Docker, bạn có thể truyền các biến môi trường qua cờ 
 | `PORT` | `7860` | Cổng dịch vụ web lắng nghe bên trong container |
 | `ADMIN_USERNAME` | `admin` | Tên đăng nhập mặc định cho quyền quản trị |
 | `ADMIN_PASSWORD` | `PublicBank@2026` | Mật khẩu ban đầu để đăng nhập vào hệ thống |
+| `ADMIN_PASSWORD` | `Tuanpv@2026` | Mật khẩu ban đầu để đăng nhập vào hệ thống |
 
 ---
 
@@ -166,6 +168,7 @@ docker rm -f sql-app
 ## 8. Triển khai Docker lên Cloud & Server Nội bộ
 
 ### 8.1. Triển khai lên VPS Riêng / Server Nội bộ Ngân hàng (Ubuntu / Debian / CentOS)
+### 8.1. Triển khai lên VPS Riêng / Server Nội bộ (Ubuntu / Debian / CentOS)
 1. Cài đặt Docker trên server: `curl -fsSL https://get.docker.com | sh`
 2. Copy thư mục `Converter_Tool` lên server.
 3. Chạy `docker compose up -d`.
@@ -174,6 +177,7 @@ docker rm -f sql-app
    server {
        listen 80;
        server_name sql-tool.publicbank.com.vn;
+       server_name sql-tool.tuanpv.local;
 
        location / {
            proxy_pass http://127.0.0.1:7860;
@@ -185,6 +189,7 @@ docker rm -f sql-app
    }
    ```
    Chạy lệnh cấp HTTPS tự động: `sudo certbot --nginx -d sql-tool.publicbank.com.vn`.
+   Chạy lệnh cấp HTTPS tự động: `sudo certbot --nginx -d sql-tool.tuanpv.local`.
 
 ### 8.2. Triển khai lên Render.com (Miễn phí 100% Container Docker)
 1. Đưa thư mục `Converter_Tool` lên GitHub Repository (chế độ Private).
