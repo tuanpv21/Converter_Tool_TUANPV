@@ -1,4 +1,13 @@
-﻿# ⚡ TOOL CHUYỂN ĐỔI CÚ PHÁP SQL 2 CHIỀU: PRESTO ⇄ SPARK SQL
+---
+title: Presto Spark SQL Transpiler
+emoji: ⚡
+colorFrom: blue
+colorTo: indigo
+sdk: static
+pinned: false
+---
+
+# ⚡ TOOL CHUYỂN ĐỔI CÚ PHÁP SQL 2 CHIỀU: PRESTO ⇄ SPARK SQL
 ### Hỗ trợ Truy vấn Dữ liệu S3 Data Lake (Presto / Trino / Athena ⇄ Apache Spark SQL)
 
 ---
