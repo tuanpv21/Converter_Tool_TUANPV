@@ -85,7 +85,7 @@
     <div class="engine-status">
       <span id="engine-dot" class="dot"></span>
       <span id="engine-text">Đang tải WebAssembly sqlglot...</span>
-      <button class="btn-secondary" style="padding: 4px 10px; font-size: 11px; margin-left: 10px;" onclick="handleLogout()">🔒 Khóa</button>
+      <button id="btn-lock" class="btn-secondary" style="padding: 4px 10px; font-size: 11px; margin-left: 10px; display: none;" onclick="handleLogout()">🔒 Khóa</button>
     </div>
   </header>
 
@@ -126,11 +126,10 @@
   <div id="toast" class="toast">Thông báo</div>
 
   <script>
-    // SHA-256 hash của mật khẩu mặc định "PublicBank@2026"
-    const DEFAULT_PASS_HASH = "b91176b6b72a6b29d10e53a3c9b4e7233261a8ef1bf5ca6143e86dae0eaef0ce";
     let currentMode = 'presto2spark';
     let pyodide = null;
     let isSqlglotReady = false;
+    let hasBackend = false;
 
     // 1. KHOI TAO PYODIDE & SQLGLOT WEBASSEMBLY
     async function initPyodideEngine() {
@@ -155,26 +154,43 @@ def transpile_sql(sql_code, read_d, write_d):
 
         isSqlglotReady = true;
         document.getElementById('engine-dot').classList.add('ready');
-        document.getElementById('engine-text').innerText = "WebAssembly sqlglot (AST Full Engine Ready)";
+        document.getElementById('engine-text').innerText = "WebAssembly sqlglot (AST Engine Ready)";
       } catch (err) {
         console.warn("Loi load Pyodide:", err);
         document.getElementById('engine-text').innerText = "Client Regex Engine (Sẵn sàng)";
       }
     }
 
-    // 2. AUTHENTICATION (SECURE SERVER-SIDE VIA API)
+    // 2. AUTHENTICATION (HYBRID: TỰ ĐỘNG BẢO MẬT THEO MÔI TRƯỜNG)
     async function checkAuth() {
       try {
         const res = await fetch('/api/me');
-        if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+
+        // Có máy chủ Python Backend (Local / Docker app_web.py)
+        if (res.ok && contentType.includes('application/json')) {
+          hasBackend = true;
           const data = await res.json();
           if (data.logged_in) {
             document.getElementById('login-modal').style.display = 'none';
+            document.getElementById('btn-lock').style.display = 'inline-flex';
+            return;
+          } else {
+            document.getElementById('login-modal').style.display = 'flex';
+            document.getElementById('btn-lock').style.display = 'none';
             return;
           }
         }
-      } catch (e) {}
-      document.getElementById('login-modal').style.display = 'flex';
+      } catch (e) {
+        console.warn("Backend auth check error:", e);
+      }
+
+      // Môi trường Static Hosting (Hugging Face Static Space): Không có máy chủ Python
+      // Ẩn form login vì HF Static không có API backend; bảo mật bằng chế độ Private Space trên HF
+      hasBackend = false;
+      document.getElementById('login-modal').style.display = 'none';
+      const btnLock = document.getElementById('btn-lock');
+      if (btnLock) btnLock.style.display = 'none';
     }
 
     async function handleLogin(e) {
@@ -191,9 +207,18 @@ def transpile_sql(sql_code, read_d, write_d):
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ password: pwd })
         });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          errBox.innerText = "Máy chủ đang chạy ở chế độ Static Web (không có backend API). Hãy cấu hình Private Space trên Hugging Face để bảo mật truy cập.";
+          errBox.style.display = 'block';
+          return;
+        }
+
         const data = await res.json();
         if (res.ok && data.status === 'ok') {
           document.getElementById('login-modal').style.display = 'none';
+          document.getElementById('btn-lock').style.display = 'inline-flex';
           showToast("Đăng nhập thành công!");
           loadSample();
         } else {
@@ -207,10 +232,12 @@ def transpile_sql(sql_code, read_d, write_d):
     }
 
     async function handleLogout() {
+      if (!hasBackend) return;
       try {
         await fetch('/api/logout', { method: 'POST' });
       } catch (e) {}
       document.getElementById('login-modal').style.display = 'flex';
+      document.getElementById('btn-lock').style.display = 'none';
       const pwdInput = document.getElementById('access-password');
       if (pwdInput) pwdInput.value = '';
       showToast("Đã đăng xuất khỏi hệ thống");
