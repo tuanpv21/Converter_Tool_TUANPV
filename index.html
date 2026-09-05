@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Presto ⇄ Spark SQL Transpiler - Public Bank Vietnam</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0b1329; color: #e2e8f0; min-height: 100vh; display: flex; flex-direction: column; }
+    
+    header { background: #131f37; border-bottom: 1px solid #1e293b; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; }
+    .logo { font-size: 17px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 8px; }
+    .badge { background: #0284c7; color: #ffffff; font-size: 11px; padding: 3px 8px; border-radius: 9999px; font-weight: 600; }
+    .engine-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #94a3b8; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; display: inline-block; }
+    .dot.ready { background: #10b981; }
+
+    button { font-family: inherit; font-size: 13px; font-weight: 600; padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-switch { background: #0284c7; color: white; }
+    .btn-switch:hover { background: #0369a1; }
+    .btn-secondary { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
+    .btn-secondary:hover { background: #334155; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-copy { background: #059669; color: white; }
+    .btn-copy:hover { background: #047857; }
+
+    .main-container { flex: 1; display: flex; flex-direction: column; padding: 16px 24px; gap: 14px; }
+    .toolbar { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    .btn-group { display: flex; gap: 8px; align-items: center; }
+    .panels { display: flex; gap: 16px; flex: 1; min-height: 520px; }
+    .panel { flex: 1; display: flex; flex-direction: column; background: #131f37; border-radius: 8px; border: 1px solid #1e293b; overflow: hidden; }
+    .panel-header { background: #0f172a; padding: 10px 16px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; }
+    .panel-header.left { color: #38bdf8; }
+    .panel-header.right { color: #34d399; }
+    textarea { flex: 1; width: 100%; border: none; outline: none; background: #090e1a; color: #f8fafc; font-family: "Consolas", "Courier New", monospace; font-size: 13px; line-height: 1.5; padding: 16px; resize: none; tab-size: 4; }
+    .status-bar { font-size: 12px; color: #94a3b8; padding: 4px 6px; }
+
+    /* Login Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(3, 7, 18, 0.9); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; z-index: 999; }
+    .auth-card { background: #131f37; border: 1px solid #334155; border-radius: 12px; padding: 32px; width: 100%; max-width: 380px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); }
+    .auth-title { font-size: 20px; font-weight: 700; color: #f8fafc; margin-bottom: 6px; text-align: center; }
+    .auth-sub { font-size: 13px; color: #94a3b8; margin-bottom: 20px; text-align: center; }
+    .form-group { margin-bottom: 16px; }
+    .form-label { display: block; font-size: 12px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px; }
+    .form-input { width: 100%; padding: 10px 14px; background: #090e1a; border: 1px solid #334155; border-radius: 6px; color: white; font-size: 14px; outline: none; }
+    .form-input:focus { border-color: #38bdf8; }
+    .auth-error { background: #7f1d1d; color: #fecaca; padding: 10px; border-radius: 6px; font-size: 12px; margin-bottom: 16px; display: none; }
+
+    .toast { position: fixed; bottom: 20px; right: 20px; background: #10b981; color: white; padding: 10px 18px; border-radius: 6px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; z-index: 1000; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+  <!-- LOGIN MODAL -->
+  <div id="login-modal" class="modal-overlay">
+    <div class="auth-card">
+      <div style="text-align: center; margin-bottom: 12px; font-size: 32px;">🔐</div>
+      <h2 class="auth-title">Xác Thực Hệ Thống</h2>
+      <p class="auth-sub">Nhập mật khẩu truy cập SQL Transpiler</p>
+      <div id="login-error" class="auth-error">Mật khẩu không chính xác!</div>
+      <form onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label class="form-label">Mật khẩu truy cập</label>
+          <input type="password" id="access-password" class="form-input" required placeholder="Nhập mật khẩu..." autofocus />
+        </div>
+        <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; padding: 11px;">
+          Mở Khóa Hệ Thống ➔
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- APP HEADER -->
+  <header>
+    <div class="logo">
+      <span>⚡ Presto ⇄ Spark SQL Transpiler</span>
+      <span class="badge">S3 Data Lake</span>
+    </div>
+    <div class="engine-status">
+      <span id="engine-dot" class="dot"></span>
+      <span id="engine-text">Đang tải WebAssembly sqlglot...</span>
+      <button class="btn-secondary" style="padding: 4px 10px; font-size: 11px; margin-left: 10px;" onclick="handleLogout()">🔒 Khóa</button>
+    </div>
+  </header>
+
+  <!-- APP CONTENT -->
+  <div class="main-container">
+    <div class="toolbar">
+      <div class="btn-group">
+        <button id="btn-convert" class="btn-primary" onclick="convertSQL()">🚀 Chuyển đổi sang Spark SQL (Ctrl + Enter)</button>
+        <button id="btn-toggle-mode" class="btn-switch" onclick="toggleMode()">⇄ Đổi chiều: Presto ➔ Spark SQL</button>
+        <button class="btn-secondary" onclick="swapContent()">⇆ Đổi chỗ nội dung</button>
+        <button class="btn-secondary" onclick="loadSample()">📄 Mẫu thử</button>
+        <button class="btn-secondary" onclick="clearAll()">🗑️ Xóa trắng</button>
+      </div>
+      <div class="status-bar" id="status-bar">Sẵn sàng</div>
+    </div>
+
+    <div class="panels">
+      <!-- PANEL INPUT -->
+      <div class="panel">
+        <div class="panel-header left">
+          <span id="title-left">📥 INPUT: Presto SQL</span>
+          <span id="sub-left" style="font-size: 11px; color: #64748b;">Nguồn: Presto / Trino / Athena</span>
+        </div>
+        <textarea id="sql-input" placeholder="Nhập hoặc dán câu lệnh SQL vào đây..."></textarea>
+      </div>
+
+      <!-- PANEL OUTPUT -->
+      <div class="panel">
+        <div class="panel-header right">
+          <span id="title-right">📤 OUTPUT: Spark SQL</span>
+          <button class="btn-copy" onclick="copyResult()">📋 Sao chép</button>
+        </div>
+        <textarea id="sql-output" readonly placeholder="Kết quả chuyển đổi sẽ hiển thị ở đây..."></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">Thông báo</div>
+
+  <script>
+    // SHA-256 hash của mật khẩu mặc định "PublicBank@2026"
+    const DEFAULT_PASS_HASH = "b91176b6b72a6b29d10e53a3c9b4e7233261a8ef1bf5ca6143e86dae0eaef0ce";
+    let currentMode = 'presto2spark';
+    let pyodide = null;
+    let isSqlglotReady = false;
+
+    // 1. KHOI TAO PYODIDE & SQLGLOT WEBASSEMBLY
+    async function initPyodideEngine() {
+      try {
+        pyodide = await loadPyodide();
+        document.getElementById('engine-text').innerText = "Đang nạp thư viện sqlglot...";
+        await pyodide.loadPackage("micropip");
+        const micropip = pyodide.pyimport("micropip");
+        await micropip.install("sqlglot");
+        
+        // Khoi tao script python AST
+        await pyodide.runPythonAsync(`
+import sqlglot
+
+def transpile_sql(sql_code, read_d, write_d):
+    try:
+        res = sqlglot.transpile(sql_code, read=read_d, write=write_d, pretty=True)
+        return ";\\n\\n".join(res)
+    except Exception as e:
+        return f"__ERROR__:{str(e)}"
+        `);
+
+        isSqlglotReady = true;
+        document.getElementById('engine-dot').classList.add('ready');
+        document.getElementById('engine-text').innerText = "WebAssembly sqlglot (AST Full Engine Ready)";
+      } catch (err) {
+        console.warn("Loi load Pyodide:", err);
+        document.getElementById('engine-text').innerText = "Client Regex Engine (Sẵn sàng)";
+      }
+    }
+
+    // 2. AUTHENTICATION (SECURE SERVER-SIDE VIA API)
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/me');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.logged_in) {
+            document.getElementById('login-modal').style.display = 'none';
+            return;
+          }
+        }
+      } catch (e) {}
+      document.getElementById('login-modal').style.display = 'flex';
+    }
+
+    async function handleLogin(e) {
+      if (e) e.preventDefault();
+      const errBox = document.getElementById('login-error');
+      errBox.style.display = 'none';
+
+      const pwdInput = document.getElementById('access-password');
+      const pwd = pwdInput ? pwdInput.value.trim() : '';
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pwd })
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+          document.getElementById('login-modal').style.display = 'none';
+          showToast("Đăng nhập thành công!");
+          loadSample();
+        } else {
+          errBox.innerText = data.error || "Mật khẩu không chính xác!";
+          errBox.style.display = 'block';
+        }
+      } catch (err) {
+        errBox.innerText = "Lỗi kết nối máy chủ: " + err.message;
+        errBox.style.display = 'block';
+      }
+    }
+
+    async function handleLogout() {
+      try {
+        await fetch('/api/logout', { method: 'POST' });
+      } catch (e) {}
+      document.getElementById('login-modal').style.display = 'flex';
+      const pwdInput = document.getElementById('access-password');
+      if (pwdInput) pwdInput.value = '';
+      showToast("Đã đăng xuất khỏi hệ thống");
+    }
+
+    // 3. REGEX FALLBACK ENGINE (CLIENT JAVASCRIPT)
+    function regexConvert(sql, mode) {
+      let res = sql;
+      if (mode === 'presto2spark') {
+        res = res.replace(/\bVARCHAR\b/gi, 'STRING');
+        res = res.replace(/\bVARBINARY\b/gi, 'BINARY');
+        res = res.replace(/\bjson_extract_scalar\s*\(/gi, 'get_json_object(');
+        res = res.replace(/\bjson_extract\s*\(/gi, 'get_json_object(');
+        res = res.replace(/\bcardinality\s*\(/gi, 'size(');
+        res = res.replace(/\bapprox_distinct\s*\(/gi, 'approx_count_distinct(');
+        res = res.replace(/\bstrpos\s*\(/gi, 'instr(');
+        res = res.replace(/\bnow\s*\(\s*\)/gi, 'current_timestamp()');
+        res = res.replace(/s3:\/\//g, 's3a://');
+        res = res.replace(/\bdate_diff\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'datediff($2, $1)');
+        res = res.replace(/\bdate_add\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_add($2, $1)');
+        res = res.replace(/\bdate_parse\s*\(\s*([^,]+?)\s*,\s*['"]%Y-%m-%d['"]\s*\)/gi, 'to_date($1, "yyyy-MM-dd")');
+        res = res.replace(/\bcontains\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'array_contains($1, $2)');
+        res = res.replace(/\barray_join\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'concat_ws($2, $1)');
+      } else {
+        res = res.replace(/\bSTRING\b/gi, 'VARCHAR');
+        res = res.replace(/\bget_json_object\s*\(/gi, 'json_extract_scalar(');
+        res = res.replace(/\bsize\s*\(/gi, 'cardinality(');
+        res = res.replace(/\bapprox_count_distinct\s*\(/gi, 'approx_distinct(');
+        res = res.replace(/\binstr\s*\(/gi, 'strpos(');
+        res = res.replace(/\bcurrent_timestamp\s*\(\s*\)/gi, 'now()');
+        res = res.replace(/s3a:\/\//g, 's3://');
+        res = res.replace(/\bdatediff\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_diff('day', $2, $1)");
+        res = res.replace(/\bdate_add\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_add('day', $2, $1)");
+        res = res.replace(/\bto_date\s*\(\s*([^,]+?)\s*,\s*['"]yyyy-MM-dd['"]\s*\)/gi, "date_parse($1, '%Y-%m-%d')");
+        res = res.replace(/\barray_contains\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'contains($1, $2)');
+        res = res.replace(/\bconcat_ws\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'array_join($2, $1)');
+      }
+      return res;
+    }
+
+    // 4. MAIN CONVERT FUNCTION
+    async function convertSQL() {
+      const input = document.getElementById('sql-input').value.trim();
+      if (!input) {
+        alert("Vui lòng nhập câu lệnh SQL cần chuyển đổi!");
+        return;
+      }
+      document.getElementById('status-bar').innerText = "Đang phân tích và chuyển đổi...";
+
+      const read_d = currentMode === 'presto2spark' ? 'presto' : 'spark';
+      const write_d = currentMode === 'presto2spark' ? 'spark' : 'presto';
+
+      if (isSqlglotReady && pyodide) {
+        try {
+          // Goi Python function
+          pyodide.globals.set("g_sql", input);
+          pyodide.globals.set("g_read", read_d);
+          pyodide.globals.set("g_write", write_d);
+          const res = await pyodide.runPythonAsync(`transpile_sql(g_sql, g_read, g_write)`);
+          
+          if (res.startsWith("__ERROR__:")) {
+            console.warn("sqlglot AST parse warning, fallback regex:", res);
+            document.getElementById('sql-output').value = regexConvert(input, currentMode);
+            document.getElementById('status-bar').innerText = "✅ Đã chuyển đổi bằng Rule Engine (Cú pháp ngoại lệ)";
+          } else {
+            document.getElementById('sql-output').value = res;
+            document.getElementById('status-bar').innerText = "✅ Chuyển đổi thành công bằng sqlglot AST Engine!";
+          }
+          return;
+        } catch (e) {
+          console.warn("Pyodide error, falling back to regex:", e);
+        }
+      }
+
+      // Fallback
+      document.getElementById('sql-output').value = regexConvert(input, currentMode);
+      document.getElementById('status-bar').innerText = "✅ Chuyển đổi thành công (Client Regex Engine)";
+    }
+
+    // 5. SAMPLE QUERIES & UI
+    const samplePresto = `-- Vi du truy van Presto tren S3
+SELECT 
+    cast(cust_id as varchar) as cust_id_str,
+    json_extract_scalar(event_payload, '$.device_info.os') as os_type,
+    date_diff('day', date_parse(sign_up_date, '%Y-%m-%d'), current_date) as active_days,
+    cardinality(transaction_ids) as total_txns,
+    contains(transaction_ids, 'TXN_VIP_999') as is_vip_txn,
+    array_join(tag_names, ', ') as tags_str,
+    approx_distinct(session_token) as approx_sessions
+FROM customer_activity_logs
+WHERE date_add('day', -30, current_date) <= date_parse(log_date, '%Y-%m-%d')
+GROUP BY 1, 2, 3, 4, 5, 6, 7;`;
+
+    const sampleSpark = `-- Vi du truy van Spark SQL tren S3
+SELECT 
+    cast(cust_id as string) as cust_id_str,
+    get_json_object(event_payload, '$.device_info.os') as os_type,
+    datediff(current_date(), to_date(sign_up_date, 'yyyy-MM-dd')) as active_days,
+    size(transaction_ids) as total_txns,
+    array_contains(transaction_ids, 'TXN_VIP_999') as is_vip_txn,
+    concat_ws(', ', tag_names) as tags_str,
+    approx_count_distinct(session_token) as approx_sessions
+FROM customer_activity_logs
+WHERE date_add(current_date(), -30) <= to_date(log_date, 'yyyy-MM-dd')
+GROUP BY 1, 2, 3, 4, 5, 6, 7;`;
+
+    function updateUI() {
+      if (currentMode === 'presto2spark') {
+        document.getElementById('btn-toggle-mode').innerText = "⇄ Đổi chiều: Presto ➔ Spark SQL";
+        document.getElementById('btn-toggle-mode').style.background = "#0284c7";
+        document.getElementById('btn-convert').innerText = "🚀 Chuyển đổi sang Spark SQL (Ctrl + Enter)";
+        document.getElementById('btn-convert').style.background = "#2563eb";
+        document.getElementById('title-left').innerText = "📥 INPUT: Presto SQL";
+        document.getElementById('sub-left').innerText = "Nguồn: Presto / Trino / Athena";
+        document.getElementById('title-right').innerText = "📤 OUTPUT: Spark SQL";
+      } else {
+        document.getElementById('btn-toggle-mode').innerText = "⇄ Đổi chiều: Spark SQL ➔ Presto";
+        document.getElementById('btn-toggle-mode').style.background = "#059669";
+        document.getElementById('btn-convert').innerText = "🚀 Chuyển đổi sang Presto SQL (Ctrl + Enter)";
+        document.getElementById('btn-convert').style.background = "#059669";
+        document.getElementById('title-left').innerText = "📥 INPUT: Spark SQL";
+        document.getElementById('sub-left').innerText = "Nguồn: Apache Spark SQL";
+        document.getElementById('title-right').innerText = "📤 OUTPUT: Presto / Trino SQL";
+      }
+    }
+
+    function toggleMode() {
+      currentMode = currentMode === 'presto2spark' ? 'spark2presto' : 'presto2spark';
+      updateUI();
+      document.getElementById('status-bar').innerText = "Đã đổi chiều sang: " + currentMode.toUpperCase();
+    }
+
+    function swapContent() {
+      const inVal = document.getElementById('sql-input').value;
+      const outVal = document.getElementById('sql-output').value;
+      document.getElementById('sql-input').value = outVal;
+      document.getElementById('sql-output').value = inVal;
+      toggleMode();
+      document.getElementById('status-bar').innerText = "Đã đảo vị trí nội dung và chuyển hướng chuyển đổi!";
+    }
+
+    function loadSample() {
+      document.getElementById('sql-input').value = currentMode === 'presto2spark' ? samplePresto : sampleSpark;
+      document.getElementById('sql-output').value = '';
+      document.getElementById('status-bar').innerText = "Đã nạp câu truy vấn mẫu.";
+    }
+
+    function clearAll() {
+      document.getElementById('sql-input').value = '';
+      document.getElementById('sql-output').value = '';
+      document.getElementById('status-bar').innerText = "Đã xóa trắng.";
+    }
+
+    function copyResult() {
+      const out = document.getElementById('sql-output').value;
+      if (!out) return;
+      navigator.clipboard.writeText(out);
+      showToast("Đã sao chép vào Clipboard!");
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'Enter') {
+        convertSQL();
+      }
+    });
+
+    window.onload = () => {
+      updateUI();
+      checkAuth();
+      initPyodideEngine();
+    };
+  </script>
+</body>
+</html>

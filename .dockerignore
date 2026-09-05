@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.git
+.gitignore
+Chay_Tool_Desktop.bat
+Chay_Tool_Web.bat
+Deploy_HuggingFace.bat
+auth.db

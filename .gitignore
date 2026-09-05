@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+auth.db
+.DS_Store
