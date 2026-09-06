@@ -716,8 +716,8 @@ def main():
         except Exception:
             pass
 
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("0.0.0.0", PORT), AuthRequestHandler) as httpd:
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
+    with socketserver.ThreadingTCPServer(("0.0.0.0", PORT), AuthRequestHandler) as httpd:
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
