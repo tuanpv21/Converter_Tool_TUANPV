@@ -286,6 +286,10 @@
               <option value="N">N - Không</option>
             </select>
           </div>
+          <div class="form-group-inline" style="grid-column: span 6; margin-top: 6px;">
+            <label class="field-label">Catalog &amp; Schema Bảng Đích (Tiền tố bảng INSERT &amp; DELETE)</label>
+            <input type="text" id="cir-target-schema" class="field-input" value="prod_gold_ssd.sbv_report." placeholder="VD: prod_gold_ssd.sbv_report." style="font-family: monospace; color: var(--msb-orange-dark); font-weight: 700;" />
+          </div>
         </div>
       </div>
     </div>
@@ -323,26 +327,26 @@
           <div class="form-group-inline">
             <label class="field-label">Cơ Chế Khớp ORDER_ID Trong SQL</label>
             <select id="cir-order-mode" class="field-select" onchange="onOrderModeChange()">
-              <option value="join_subquery" selected>⚡ Tạo bảng tạm JOIN với bảng kết quả (JOIN (SELECT ... UNION ALL ...) O ON A.STT = O.STT)</option>
+              <option value="direct_col" selected>🎯 Báo cáo đã có sẵn cột ORDER_ID trong bảng kết quả</option>
+              <option value="join_subquery">⚡ Tạo bảng thứ tự c_report_order_{mã_bc} &amp; JOIN với bảng kết quả</option>
               <option value="case_stt">Biểu thức CASE WHEN A.STT...</option>
-              <option value="direct_col">Có sẵn cột ORDER_ID trong bảng kết quả</option>
             </select>
           </div>
         </div>
 
         <div class="grid-3" id="box-order-config-detail">
-          <div class="form-group-inline">
+          <div class="form-group-inline" id="box-stt-col" style="display: none;">
             <label class="field-label">Cột STT / Mã Chỉ Tiêu Trong Bảng Nguồn</label>
             <input type="text" id="cir-stt-col" class="field-input" value="A.STT" placeholder="VD: A.STT hoặc A.MA_CHI_TIEU" />
           </div>
-          <div class="form-group-inline" id="box-order-col-name" style="display: none;">
+          <div class="form-group-inline" id="box-order-col-name">
             <label class="field-label">Tên Cột ORDER_ID Trực Tiếp</label>
             <input type="text" id="cir-order-col" class="field-input" value="A.ORDER_ID" placeholder="VD: A.ORDER_ID" />
           </div>
           <div class="form-group-inline" style="grid-column: span 2;">
             <label class="field-label">Ghi Chú Khớp ORDER_ID</label>
-            <div style="font-size: 12px; color: #64748B; padding-top: 6px;">
-              💡 <em>Chế độ <strong>JOIN bảng tạm</strong> sẽ sinh subquery UNION ALL các mã chỉ tiêu (ví dụ <code>1.1</code>, <code>1.2</code>, <code>2.2</code>) ở bảng mục 3 và JOIN trực tiếp với bảng kết quả theo cột STT.</em>
+            <div id="box-order-note" style="font-size: 12px; color: #64748B; padding-top: 6px;">
+              💡 <em>Chế độ <strong>Có sẵn cột ORDER_ID</strong>: Lấy trực tiếp từ <code>A.ORDER_ID</code> trong bảng kết quả nguồn, không cần tạo thêm bảng thứ tự.</em>
             </div>
           </div>
         </div>
@@ -366,7 +370,7 @@
     </div>
 
     <!-- Section 3: BẢNG THỨ TỰ ORDER ĐỂ JOIN (MÃ CHỈ TIÊU / STT ⇄ ORDER_ID) -->
-    <div class="circular-card">
+    <div class="circular-card" id="section-order-table" style="display: none;">
       <div class="circular-card-header">
         <div style="display: flex; align-items: center; gap: 10px;">
           <span>3. BẢNG THỨ TỰ ORDER ĐỂ JOIN (MÃ CHỈ TIÊU STT ➔ ORDER_ID)</span>
@@ -611,7 +615,7 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto"):
         }
       } catch (err) {}
 
-      if (pwd === "Tuanpv@2026") {
+      if (pwd === "VualidonMSB") {
         sessionStorage.setItem('tuanpv_authenticated', 'true');
         document.getElementById('login-modal').style.display = 'none';
         document.getElementById('btn-lock').style.display = 'inline-block';
@@ -866,7 +870,27 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
 
     function onOrderModeChange() {
       const mode = document.getElementById('cir-order-mode').value;
-      document.getElementById('box-order-col-name').style.display = mode === 'direct_col' ? 'flex' : 'none';
+      const boxOrderCol = document.getElementById('box-order-col-name');
+      const boxSttCol = document.getElementById('box-stt-col');
+      const sectionOrderTable = document.getElementById('section-order-table');
+      const noteBox = document.getElementById('box-order-note');
+
+      if (mode === 'direct_col') {
+        if (boxOrderCol) boxOrderCol.style.display = 'flex';
+        if (boxSttCol) boxSttCol.style.display = 'none';
+        if (sectionOrderTable) sectionOrderTable.style.display = 'none';
+        if (noteBox) noteBox.innerHTML = '💡 <em>Chế độ <strong>Có sẵn cột ORDER_ID</strong>: Lấy trực tiếp từ cột chỉ định (VD: <code>A.ORDER_ID</code>) trong bảng kết quả, không cần tạo bảng thứ tự.</em>';
+      } else if (mode === 'join_subquery') {
+        if (boxOrderCol) boxOrderCol.style.display = 'none';
+        if (boxSttCol) boxSttCol.style.display = 'flex';
+        if (sectionOrderTable) sectionOrderTable.style.display = 'block';
+        if (noteBox) noteBox.innerHTML = '💡 <em>Chế độ <strong>Tạo bảng thứ tự &amp; JOIN</strong>: Tự động sinh DDL/INSERT bảng <code>c_report_order_{mã_bc}</code> và sinh câu lệnh <code>JOIN</code> theo cột STT.</em>';
+      } else if (mode === 'case_stt') {
+        if (boxOrderCol) boxOrderCol.style.display = 'none';
+        if (boxSttCol) boxSttCol.style.display = 'flex';
+        if (sectionOrderTable) sectionOrderTable.style.display = 'block';
+        if (noteBox) noteBox.innerHTML = '💡 <em>Chế độ <strong>CASE WHEN</strong>: Ánh xạ STT sang số thứ tự trực tiếp bằng biểu thức CASE WHEN ngay trong câu SELECT.</em>';
+      }
     }
 
     // --- QUẢN LÝ BẢNG ORDER_ID / MÃ CHỈ TIÊU ---
@@ -1266,6 +1290,10 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       const sttCol = document.getElementById('cir-stt-col').value.trim() || 'A.STT';
       const directOrderCol = document.getElementById('cir-order-col').value.trim() || 'A.ORDER_ID';
 
+      // Schema prefix: prod_gold_ssd.sbv_report.
+      const rawSchemaInput = document.getElementById('cir-target-schema') ? document.getElementById('cir-target-schema').value.trim() : 'prod_gold_ssd.sbv_report.';
+      const targetSchema = rawSchemaInput ? (rawSchemaInput.endsWith('.') ? rawSchemaInput : rawSchemaInput + '.') : '';
+
       // 3 trường bổ sung cho C_SOURCE_CODE
       const preSourceInput = document.getElementById('cir-pre-source-id') ? document.getElementById('cir-pre-source-id').value.trim() : 'NULL';
       const preSourceVal = (!preSourceInput || preSourceInput.toUpperCase() === 'NULL') ? 'NULL' : `'${escapeSqlStr(preSourceInput)}'`;
@@ -1280,14 +1308,18 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       }
 
       const orderTableName = `c_report_order_${groupCode.toLowerCase()}`;
+      const fullOrderTable = `${targetSchema}${orderTableName}`;
 
-      // Xây dựng câu truy vấn dữ liệu theo cơ chế JOIN bảng thứ tự c_report_order_{mã_bc} hoặc CASE
+      // Xây dựng câu truy vấn dữ liệu theo cơ chế: direct_col / JOIN bảng thứ tự / CASE
       let fromAndJoinExpr = resultTable;
       let orderColExpr = directOrderCol;
 
-      if (orderMode === 'join_subquery' && circularOrders.length > 0) {
+      if (orderMode === 'direct_col') {
+        orderColExpr = directOrderCol;
+        fromAndJoinExpr = resultTable;
+      } else if (orderMode === 'join_subquery' && circularOrders.length > 0) {
         orderColExpr = 'O.ORDER_ID';
-        fromAndJoinExpr = `${resultTable}\nJOIN ${orderTableName} O ON ${sttCol} = O.STT`;
+        fromAndJoinExpr = `${resultTable}\nJOIN ${fullOrderTable} O ON ${sttCol} = O.STT`;
       } else if (orderMode === 'case_stt' && circularOrders.length > 0) {
         orderColExpr = `CASE ${sttCol}\n`;
         circularOrders.forEach(ord => {
@@ -1299,41 +1331,46 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       let sql = `-- =========================================================================================\n`;
       sql += `-- SCRIPT TỰ ĐỘNG SINH CẤU HÌNH BÁO CÁO (MSB CIRCULAR CONFIG GENERATOR) - TUANPV\n`;
       sql += `-- MÃ BÁO CÁO: ${groupCode} | SHEET: ${sheetNo} (${sbvGroupCode}) | KỲ HẠN: ${termCode} (${termName})\n`;
-      sql += `-- BẢNG THỨ TỰ ORDER: ${orderTableName}\n`;
+      sql += `-- CATALOG & SCHEMA ĐÍCH: ${targetSchema || '(Mặc định)'}\n`;
+      if (orderMode === 'join_subquery' && circularOrders.length > 0) {
+        sql += `-- BẢNG THỨ TỰ ORDER: ${fullOrderTable}\n`;
+      } else if (orderMode === 'direct_col') {
+        sql += `-- THỨ TỰ ORDER: Lấy trực tiếp từ cột ${orderColExpr}\n`;
+      }
       sql += `-- THỜI GIAN SINH: ${new Date().toLocaleString('vi-VN')}\n`;
       sql += `-- =========================================================================================\n\n`;
 
-      // 1. TẠO BẢNG THỨ TỰ ORDER NẾU CÓ CHỈ TIÊU
-      if (circularOrders.length > 0) {
+      // 1. TẠO BẢNG THỨ TỰ ORDER NẾU CHỌN CHẾ ĐỘ JOIN VÀ CÓ CHỈ TIÊU
+      if (orderMode === 'join_subquery' && circularOrders.length > 0) {
         sql += `-- =========================================================================================\n`;
-        sql += `-- 1. TẠO BẢNG THỨ TỰ CHỈ TIÊU: ${orderTableName} (JOIN VỚI BẢNG KẾT QUẢ)\n`;
+        sql += `-- 1. TẠO BẢNG THỨ TỰ CHỈ TIÊU: ${fullOrderTable} (JOIN VỚI BẢNG KẾT QUẢ)\n`;
         sql += `-- =========================================================================================\n`;
-        sql += `DROP TABLE IF EXISTS ${orderTableName};\n\n`;
-        sql += `CREATE TABLE ${orderTableName} (\n`;
+        sql += `DROP TABLE IF EXISTS ${fullOrderTable};\n\n`;
+        sql += `CREATE TABLE ${fullOrderTable} (\n`;
         sql += `    stt VARCHAR(50),\n`;
         sql += `    order_id INT,\n`;
         sql += `    item_name VARCHAR(500)\n`;
         sql += `);\n\n`;
         circularOrders.forEach(ord => {
-          sql += `INSERT INTO ${orderTableName} (stt, order_id, item_name) VALUES ('${escapeSqlStr(ord.stt)}', ${ord.order_id}, '${escapeSqlStr(ord.item_name)}');\n`;
+          sql += `INSERT INTO ${fullOrderTable} (stt, order_id, item_name) VALUES ('${escapeSqlStr(ord.stt)}', ${ord.order_id}, '${escapeSqlStr(ord.item_name)}');\n`;
         });
         sql += `\nCOMMIT;\n\n\n`;
       }
 
-      // 2. XÓA DỮ LIỆU CŨ THEO KEY CHUNG CỦA BÁO CÁO
+      // 2. XÓA DỮ LIỆU CŨ THEO KEY CHUNG CỦA BÁO CÁO (KÈM SCHEMA)
       sql += `-- =========================================================================================\n`;
       sql += `-- 2. XÓA CẤU HÌNH CŨ THEO KEY CHUNG CỦA BÁO CÁO (TRÁNH TRÙNG LẶP DỮ LIỆU)\n`;
       sql += `-- =========================================================================================\n`;
-      sql += `DELETE FROM C_GROUP_ITEM WHERE group_item_code = '${escapeSqlStr(groupCode)}';\n`;
-      sql += `DELETE FROM C_ITEM_ORG WHERE group_item_code = '${escapeSqlStr(groupCode)}';\n`;
-      sql += `DELETE FROM C_SOURCE_CODE WHERE org_item_code LIKE '${escapeSqlStr(groupCode)}_%';\n`;
+      sql += `DELETE FROM ${targetSchema}C_GROUP_ITEM WHERE group_item_code = '${escapeSqlStr(groupCode)}';\n`;
+      sql += `DELETE FROM ${targetSchema}C_ITEM_ORG WHERE group_item_code = '${escapeSqlStr(groupCode)}';\n`;
+      sql += `DELETE FROM ${targetSchema}C_SOURCE_CODE WHERE org_item_code LIKE '${escapeSqlStr(groupCode)}_%';\n`;
       sql += `COMMIT;\n\n\n`;
 
       // 3. C_GROUP_ITEM
       sql += `-- =========================================================================================\n`;
-      sql += `-- 3. INSERT VÀO BẢNG: C_GROUP_ITEM (Thông tin chung mẫu biểu)\n`;
+      sql += `-- 3. INSERT VÀO BẢNG: ${targetSchema}C_GROUP_ITEM (Thông tin chung mẫu biểu)\n`;
       sql += `-- =========================================================================================\n`;
-      sql += `INSERT INTO C_GROUP_ITEM (\n`;
+      sql += `INSERT INTO ${targetSchema}C_GROUP_ITEM (\n`;
       sql += `    item_code_org,\n`;
       sql += `    group_item_code,\n`;
       sql += `    sbv_group_item_code,\n`;
@@ -1355,14 +1392,14 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
 
       // 4. C_ITEM_ORG
       sql += `-- =========================================================================================\n`;
-      sql += `-- 4. INSERT VÀO BẢNG: C_ITEM_ORG (Cấu hình từng cột trên Template)\n`;
+      sql += `-- 4. INSERT VÀO BẢNG: ${targetSchema}C_ITEM_ORG (Cấu hình từng cột trên Template)\n`;
       sql += `-- =========================================================================================\n`;
       circularColumns.forEach((col) => {
         const orgItemCode = `${groupCode}_${col.col_location}`;
         const rowDb = col.row_excel > 0 ? col.row_excel - 1 : 0;
         const unitVal = (col.unit && col.unit.trim() !== '' && col.unit.toUpperCase() !== 'NULL') ? col.unit.trim() : 'NULL';
 
-        sql += `INSERT INTO C_ITEM_ORG (\n`;
+        sql += `INSERT INTO ${targetSchema}C_ITEM_ORG (\n`;
         sql += `    org_item_code, group_item_code, sbv_org_item_code, symbol, item_type,\n`;
         sql += `    item_name, item_level, col_location, row_location, term_code,\n`;
         sql += `    sbv_term_code, general_report, branch_report, data_type, unit,\n`;
@@ -1378,7 +1415,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
 
       // 5. C_SOURCE_CODE
       sql += `-- =========================================================================================\n`;
-      sql += `-- 5. INSERT VÀO BẢNG: C_SOURCE_CODE (Nguồn SQL đổ vào từng cột, kèm JOIN bảng thứ tự ORDER)\n`;
+      sql += `-- 5. INSERT VÀO BẢNG: ${targetSchema}C_SOURCE_CODE (Nguồn SQL đổ vào từng cột)\n`;
       sql += `-- =========================================================================================\n`;
       circularColumns.forEach((col) => {
         const orgItemCode = `${groupCode}_${col.col_location}`;
@@ -1391,7 +1428,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
 
         const escapedSql = escapeSqlStr(rawSql);
 
-        sql += `INSERT INTO C_SOURCE_CODE (\n`;
+        sql += `INSERT INTO ${targetSchema}C_SOURCE_CODE (\n`;
         sql += `    org_item_code,\n`;
         sql += `    use_procedure,\n`;
         sql += `    sql_code,\n`;

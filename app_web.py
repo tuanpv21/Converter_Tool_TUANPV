@@ -32,7 +32,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "auth.db")
 
 # Tài khoản mặc định từ biến môi trường (Ưu tiên khi deploy lên Cloud)
 DEFAULT_ADMIN_USER = os.environ.get("ADMIN_USERNAME", "admin")
-DEFAULT_ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "Tuanpv@2026")
+DEFAULT_ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "VualidonMSB")
 
 # ==========================================
 # 1. DATABASE & AUTHENTICATION HELPERS
