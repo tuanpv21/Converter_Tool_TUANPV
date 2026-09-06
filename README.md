@@ -17,6 +17,12 @@ pinned: false
 Công cụ chuyên dụng giải quyết bài toán chuyển đổi mã nguồn SQL giữa hai engine phổ biến nhất trên S3 Data Lake: **Presto / Trino** và **Apache Spark SQL**.
 
 - **Chuyển đổi 2 chiều (Bi-directional):** `Presto ➔ Spark SQL` và `Spark SQL ➔ Presto`.
+- **Tùy chọn Phiên bản Presto / Trino:** Hỗ trợ linh hoạt các dialect:
+  - `PrestoDB (0.2xx)` (AWS EMR Presto, Athena v2, Presto Foundation).
+  - `Trino (PrestoSQL 330+ / Trino 400+)` (Trino Software Foundation, Athena v3).
+  - `AWS Athena Engine` (AWS Athena SQL dialect).
+- **Bảo toàn Biến tham số (Parameter Preservation):**
+  - Tự động bảo vệ nguyên vẹn 100% các biến Jinja/Airflow (`{{process_date}}`, `{{ ds }}`, `{{ params.x }}`) và Shell/Spark (`${VAR}`, `${hiveconf:...}`) khi chuyển đổi, không bị parser SQL làm biến dạng thành struct/row.
 - **Engine phân tích cú pháp AST:** Sử dụng thư viện `sqlglot` để phân tích cây cú pháp trừu tượng, chuyển đổi chính xác các cấu trúc phức tạp (CTE, Subqueries, Joins, Window functions, Unnest/Explode).
 - **Quy tắc S3 Data Lake chuyên sâu:**
   - Chuyển đổi hàm đọc JSON (`json_extract_scalar` ⇄ `get_json_object`).

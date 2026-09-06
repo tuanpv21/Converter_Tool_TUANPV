@@ -253,7 +253,7 @@ HTML_PAGE = """<!DOCTYPE html>
   <header>
     <div class="logo">
       <span>⚡ Presto ⇄ Spark SQL Transpiler 2 Chiều</span>
-      <span class="badge">S3 Data Lake</span>
+      <span class="badge">TUANPV</span>
     </div>
     <div class="user-pill">
       <span>👤 Đăng nhập: <strong id="current-user">...</strong></span>
@@ -268,6 +268,17 @@ HTML_PAGE = """<!DOCTYPE html>
       <div class="btn-group">
         <button id="btn-convert" class="btn-primary" onclick="convertSQL()">🚀 Chuyển đổi sang Spark SQL (Ctrl + Enter)</button>
         <button id="btn-toggle-mode" class="btn-switch" onclick="toggleMode()">⇄ Đổi chiều: Presto ➔ Spark SQL</button>
+
+        <!-- Presto Version Dropdown -->
+        <div style="display: inline-flex; align-items: center; gap: 6px; background: #131f37; border: 1px solid #334155; padding: 4px 10px; border-radius: 6px;">
+          <span style="font-size: 12px; font-weight: 600; color: #94a3b8;">Phiên bản Presto:</span>
+          <select id="presto-version" onchange="onPrestoVersionChange()" style="background: #090e1a; color: #38bdf8; border: 1px solid #0284c7; border-radius: 4px; padding: 4px 8px; font-size: 12px; font-weight: 600; outline: none; cursor: pointer;">
+            <option value="presto" selected>PrestoDB (0.2xx / EMR / Athena v2)</option>
+            <option value="trino">Trino (PrestoSQL 330+ / Trino 400+ / Athena v3)</option>
+            <option value="athena">AWS Athena Engine</option>
+          </select>
+        </div>
+
         <button class="btn-secondary" onclick="swapContent()">⇆ Đổi chỗ nội dung</button>
         <button class="btn-secondary" onclick="loadSample()">📄 Mẫu thử</button>
         <button class="btn-secondary" onclick="clearAll()">🗑️ Xóa trắng</button>
@@ -301,7 +312,7 @@ HTML_PAGE = """<!DOCTYPE html>
   <script>
     let currentMode = 'presto2spark';
 
-    const samplePresto = `-- Vi du truy van Presto tren S3
+    const samplePresto = `-- Vi du truy van Presto tren S3 (Bao ve bien tham so {{process_date}})
 SELECT 
     cast(cust_id as varchar) as cust_id_str,
     json_extract_scalar(event_payload, '$.device_info.os') as os_type,
@@ -312,9 +323,10 @@ SELECT
     approx_distinct(session_token) as approx_sessions
 FROM customer_activity_logs
 WHERE date_add('day', -30, current_date) <= date_parse(log_date, '%Y-%m-%d')
+  AND partition_date = '{{process_date}}'
 GROUP BY 1, 2, 3, 4, 5, 6, 7;`;
 
-    const sampleSpark = `-- Vi du truy van Spark SQL tren S3
+    const sampleSpark = `-- Vi du truy van Spark SQL tren S3 (Bao ve bien tham so {{process_date}})
 SELECT 
     cast(cust_id as string) as cust_id_str,
     get_json_object(event_payload, '$.device_info.os') as os_type,
@@ -325,6 +337,7 @@ SELECT
     approx_count_distinct(session_token) as approx_sessions
 FROM customer_activity_logs
 WHERE date_add(current_date(), -30) <= to_date(log_date, 'yyyy-MM-dd')
+  AND partition_date = '{{process_date}}'
 GROUP BY 1, 2, 3, 4, 5, 6, 7;`;
 
     // 1. CHECK SESSION KHI MO TRANG
@@ -418,23 +431,44 @@ GROUP BY 1, 2, 3, 4, 5, 6, 7;`;
     }
 
     // 5. CHUYEN DOI SQL
+    function getPrestoDialect() {
+      const select = document.getElementById('presto-version');
+      return select ? select.value : 'presto';
+    }
+
+    function getPrestoDisplayName() {
+      const dialect = getPrestoDialect();
+      if (dialect === 'trino') return 'Trino';
+      if (dialect === 'athena') return 'Athena';
+      return 'Presto';
+    }
+
+    function onPrestoVersionChange() {
+      updateUI();
+      const input = document.getElementById('sql-input').value.trim();
+      if (input) {
+        convertSQL();
+      }
+    }
+
     function updateUI() {
+      const prestoName = getPrestoDisplayName();
       if (currentMode === 'presto2spark') {
-        document.getElementById('btn-toggle-mode').innerText = "⇄ Đổi chiều: Presto ➔ Spark SQL";
+        document.getElementById('btn-toggle-mode').innerText = `⇄ Đổi chiều: ${prestoName} ➔ Spark SQL`;
         document.getElementById('btn-toggle-mode').style.background = "#0284c7";
         document.getElementById('btn-convert').innerText = "🚀 Chuyển đổi sang Spark SQL (Ctrl + Enter)";
         document.getElementById('btn-convert').style.background = "#2563eb";
-        document.getElementById('title-left').innerText = "📥 INPUT: Presto SQL";
-        document.getElementById('sub-left').innerText = "Nguồn: Presto / Trino / Athena";
+        document.getElementById('title-left').innerText = `📥 INPUT: ${prestoName} SQL`;
+        document.getElementById('sub-left').innerText = `Nguồn: ${prestoName}`;
         document.getElementById('title-right').innerText = "📤 OUTPUT: Spark SQL";
       } else {
-        document.getElementById('btn-toggle-mode').innerText = "⇄ Đổi chiều: Spark SQL ➔ Presto";
+        document.getElementById('btn-toggle-mode').innerText = `⇄ Đổi chiều: Spark SQL ➔ ${prestoName}`;
         document.getElementById('btn-toggle-mode').style.background = "#059669";
-        document.getElementById('btn-convert').innerText = "🚀 Chuyển đổi sang Presto SQL (Ctrl + Enter)";
+        document.getElementById('btn-convert').innerText = `🚀 Chuyển đổi sang ${prestoName} SQL (Ctrl + Enter)`;
         document.getElementById('btn-convert').style.background = "#059669";
         document.getElementById('title-left').innerText = "📥 INPUT: Spark SQL";
         document.getElementById('sub-left').innerText = "Nguồn: Apache Spark SQL";
-        document.getElementById('title-right').innerText = "📤 OUTPUT: Presto / Trino SQL";
+        document.getElementById('title-right').innerText = `📤 OUTPUT: ${prestoName} SQL`;
       }
     }
 
@@ -473,11 +507,13 @@ GROUP BY 1, 2, 3, 4, 5, 6, 7;`;
       }
       document.getElementById('status-bar').innerText = "Đang chuyển đổi...";
 
+      const prestoDialect = getPrestoDialect();
+
       try {
         const res = await fetch('/api/convert', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: input, mode: currentMode })
+          body: JSON.stringify({ query: input, mode: currentMode, presto_dialect: prestoDialect })
         });
         if (res.status === 401) {
           checkAuth();
@@ -486,7 +522,7 @@ GROUP BY 1, 2, 3, 4, 5, 6, 7;`;
         const data = await res.json();
         if (data.status === 'ok') {
           document.getElementById('sql-output').value = data.result;
-          document.getElementById('status-bar').innerText = "✅ Chuyển đổi thành công!";
+          document.getElementById('status-bar').innerText = `✅ Chuyển đổi thành công [${prestoDialect.toUpperCase()}]!`;
         } else {
           document.getElementById('status-bar').innerText = "❌ Lỗi: " + data.error;
           alert("Lỗi chuyển đổi: " + data.error);
@@ -622,8 +658,9 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
         if self.path == "/api/convert":
             query = req_data.get("query", "")
             mode = req_data.get("mode", "presto2spark")
+            presto_dialect = req_data.get("presto_dialect", "presto")
             try:
-                converted = convert_sql(query, mode=mode)
+                converted = convert_sql(query, mode=mode, presto_dialect=presto_dialect)
                 self.send_json(200, {"status": "ok", "result": converted})
             except Exception as e:
                 self.send_json(400, {"status": "error", "error": str(e)})

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Presto <-> Spark SQL Bi-directional Transpiler Script
@@ -14,7 +14,35 @@ import re
 import argparse
 
 # ==========================================
-# 1. TRANSPILE BẰNG SQLGLOT (AST ENGINE)
+# 1. BẢO VỆ BIẾN THAM SỐ (JINJA/AIRFLOW/SPARK)
+# ==========================================
+def protect_variables(sql: str):
+    """
+    Bảo vệ các biến tham số dạng {{process_date}}, {{ ds }}, ${VAR}, v.v.
+    trước khi chuyển vào parser SQL, tránh bị parser hiểu nhầm thành cú pháp struct/row.
+    """
+    vars_list = []
+    pattern = r'(\{\{[\s\S]*?\}\}|\$\{[a-zA-Z0-9_.:\-]+\})'
+    def repl(m):
+        idx = len(vars_list)
+        vars_list.append(m.group(0))
+        return f"__TPV_VAR_{idx}__"
+    return re.sub(pattern, repl, sql), vars_list
+
+def restore_variables(sql: str, vars_list: list) -> str:
+    """
+    Khôi phục nguyên vẹn 100% các biến tham số sau khi convert xong.
+    """
+    if not vars_list:
+        return sql
+    def repl(m):
+        idx = int(m.group(1))
+        return vars_list[idx] if idx < len(vars_list) else m.group(0)
+    return re.sub(r'(?i)__TPV_VAR_(\d+)__', repl, sql)
+
+
+# ==========================================
+# 2. TRANSPILE BẰNG SQLGLOT (AST ENGINE)
 # ==========================================
 def transpile_with_sqlglot(sql_content: str, read_dialect: str, write_dialect: str) -> str:
     try:
@@ -109,38 +137,57 @@ class RegexRuleConverter:
 # ==========================================
 # 3. PUBLIC API FUNCTIONS
 # ==========================================
-def convert_sql(sql_code: str, mode: str = "presto2spark") -> str:
+# ==========================================
+# 3. PUBLIC API FUNCTIONS
+# ==========================================
+def convert_sql(sql_code: str, mode: str = "presto2spark", presto_dialect: str = "presto") -> str:
     """
     mode: 'presto2spark' hoac 'spark2presto'
+    presto_dialect: 'presto' (PrestoDB 0.2xx), 'trino' (Trino 330+/400+), 'athena' (AWS Athena)
     """
+    # 1. Bảo vệ các biến tham số (Jinja {{...}}, Shell ${...})
+    protected_sql, vars_list = protect_variables(sql_code)
+
     if mode == "spark2presto":
         read_d = "spark"
-        write_d = "presto"
+        write_d = presto_dialect or "presto"
     else:
-        read_d = "presto"
+        read_d = presto_dialect or "presto"
         write_d = "spark"
 
-    ast_result = transpile_with_sqlglot(sql_code, read_d, write_d)
+    # 2. Transpile bằng AST Engine
+    ast_result = transpile_with_sqlglot(protected_sql, read_d, write_d)
     if ast_result:
-        return ast_result
+        return restore_variables(ast_result, vars_list)
 
+    # 3. Fallback sang Regex Rule Engine
     converter = RegexRuleConverter(mode=mode)
-    return converter.convert(sql_code)
+    fallback_res = converter.convert(protected_sql)
+    return restore_variables(fallback_res, vars_list)
 
 
-def convert_presto_to_spark(sql_code: str) -> str:
-    return convert_sql(sql_code, mode="presto2spark")
+def convert_presto_to_spark(sql_code: str, presto_dialect: str = "presto") -> str:
+    return convert_sql(sql_code, mode="presto2spark", presto_dialect=presto_dialect)
 
 
-def convert_spark_to_presto(sql_code: str) -> str:
-    return convert_sql(sql_code, mode="spark2presto")
+def convert_spark_to_presto(sql_code: str, presto_dialect: str = "presto") -> str:
+    return convert_sql(sql_code, mode="spark2presto", presto_dialect=presto_dialect)
 
 
 def main():
+    if sys.platform == "win32":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+            sys.stderr.reconfigure(encoding="utf-8")
+        except AttributeError:
+            pass
+
     parser = argparse.ArgumentParser(description="Chuyen doi cu phap SQL 2 chieu: Presto <-> SparkSQL")
     parser.add_argument("-q", "--query", type=str, help="Cau lenh SQL can convert truc tiep")
     parser.add_argument("-m", "--mode", choices=["presto2spark", "spark2presto"], default="presto2spark", 
                         help="Chieu chuyen doi: presto2spark (mac dinh) hoac spark2presto")
+    parser.add_argument("-p", "--presto-dialect", choices=["presto", "trino", "athena"], default="presto",
+                        help="Phien ban Presto/Trino: presto (mac dinh PrestoDB 0.2xx), trino (Trino 330+/400+), athena (AWS Athena)")
     parser.add_argument("-f", "--file", type=str, help="Duong dan file .sql dau vao")
     parser.add_argument("-o", "--output", type=str, help="Duong dan file ket qua")
     parser.add_argument("-d", "--dir", type=str, help="Thu muc chua cac file .sql can convert")
@@ -149,18 +196,18 @@ def main():
 
     try:
         import sqlglot
-        print(f"[Engine]: Dang su dung sqlglot (AST Full Parser) | Che do: {args.mode}")
+        print(f"[Engine]: Dang su dung sqlglot (AST Full Parser) | Che do: {args.mode} | Presto Dialect: {args.presto_dialect}")
     except ImportError:
         print(f"[Engine]: Dang dung Regex Rule Engine fallback | Che do: {args.mode}")
 
     if args.query:
-        converted = convert_sql(args.query, mode=args.mode)
+        converted = convert_sql(args.query, mode=args.mode, presto_dialect=args.presto_dialect)
         if args.output:
             with open(args.output, 'w', encoding='utf-8') as f:
                 f.write(converted)
             print(f"Da luu ket qua vao: {args.output}")
         else:
-            print(f"\n--- KET QUA ({args.mode.upper()}) ---")
+            print(f"\n--- KET QUA ({args.mode.upper()} - {args.presto_dialect.upper()}) ---")
             print(converted)
 
     elif args.file:
@@ -169,20 +216,20 @@ def main():
             sys.exit(1)
         with open(args.file, 'r', encoding='utf-8') as f:
             content = f.read()
-        converted = convert_sql(content, mode=args.mode)
+        converted = convert_sql(content, mode=args.mode, presto_dialect=args.presto_dialect)
         if args.output:
             with open(args.output, 'w', encoding='utf-8') as f:
                 f.write(converted)
             print(f"Da convert xong: {args.file} -> {args.output}")
         else:
-            print(f"\n--- KET QUA ({args.mode.upper()}) ---")
+            print(f"\n--- KET QUA ({args.mode.upper()} - {args.presto_dialect.upper()}) ---")
             print(converted)
 
     elif args.dir:
         if not os.path.exists(args.dir):
             print(f"Loi: Khong tim thay thu muc {args.dir}")
             sys.exit(1)
-        out_dir = args.output or os.path.join(args.dir, f"{args.mode}_converted")
+        out_dir = args.output or os.path.join(args.dir, f"{args.mode}_{args.presto_dialect}_converted")
         os.makedirs(out_dir, exist_ok=True)
         
         for root, _, files in os.walk(args.dir):
@@ -195,7 +242,7 @@ def main():
                     
                     with open(in_path, 'r', encoding='utf-8', errors='ignore') as f:
                         content = f.read()
-                    converted = convert_sql(content, mode=args.mode)
+                    converted = convert_sql(content, mode=args.mode, presto_dialect=args.presto_dialect)
                     with open(target_path, 'w', encoding='utf-8') as f:
                         f.write(converted)
                     print(f"-> Converted: {rel_path}")
@@ -210,11 +257,14 @@ def main():
     ARRAY_CONTAINS(transaction_ids, 'TXN_VIP') AS is_vip,
     APPROX_COUNT_DISTINCT(session_token) AS approx_sessions
 FROM customer_activity_logs
-WHERE DATE_ADD(current_date(), -7) <= TO_DATE(log_date, 'yyyy-MM-dd')"""
-        print("Demo convert Spark SQL -> Presto:")
+WHERE DATE_ADD(current_date(), -7) <= TO_DATE(log_date, 'yyyy-MM-dd')
+  AND partition_date = '{{process_date}}'"""
+        print("Demo convert Spark SQL -> Presto (Bao ve bien {{process_date}}):")
         print(sample_spark)
-        print("\n--- KET QUA PRESTO SQL ---")
-        print(convert_spark_to_presto(sample_spark))
+        print("\n--- KET QUA PRESTO (PrestoDB 0.2xx) ---")
+        print(convert_spark_to_presto(sample_spark, presto_dialect="presto"))
+        print("\n--- KET QUA TRINO (PrestoSQL 330+/400+) ---")
+        print(convert_spark_to_presto(sample_spark, presto_dialect="trino"))
 
 
 if __name__ == "__main__":
