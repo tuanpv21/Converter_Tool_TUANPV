@@ -239,7 +239,7 @@
           <span style="color: var(--msb-red);">MSB</span> - Tool Gent Config File Circular
         </h2>
         <p style="font-size: 12px; color: #64748B; margin-top: 3px;">
-          Tự động sinh script <code>INSERT</code> chuẩn cho các bảng: <code>C_GROUP_ITEM</code>, <code>C_ITEM_ORG</code>, <code>C_SOURCE_CODE</code> và bảng cấu hình thứ tự <code>ORDER_ID</code>
+          Tự động sinh script <code>INSERT</code> chuẩn cho 3 bảng: <code>C_GROUP_ITEM</code>, <code>C_ITEM_ORG</code>, <code>C_SOURCE_CODE</code> (kèm bảng tạm JOIN thứ tự <code>ORDER_ID</code>)
         </p>
       </div>
       <div class="btn-group">
@@ -321,9 +321,10 @@
             <input type="text" id="cir-branch-col" class="field-input" value="A.BRANCH_ID" placeholder="VD: A.BRANCH_ID" />
           </div>
           <div class="form-group-inline">
-            <label class="field-label">Chiến Lược Cột ORDER_ID trong SQL</label>
+            <label class="field-label">Cơ Chế Khớp ORDER_ID Trong SQL</label>
             <select id="cir-order-mode" class="field-select" onchange="onOrderModeChange()">
-              <option value="case_stt" selected>⚡ Map theo cột STT mã chỉ tiêu (CASE WHEN A.STT...)</option>
+              <option value="join_subquery" selected>⚡ Tạo bảng tạm JOIN với bảng kết quả (JOIN (SELECT ... UNION ALL ...) O ON A.STT = O.STT)</option>
+              <option value="case_stt">Biểu thức CASE WHEN A.STT...</option>
               <option value="direct_col">Có sẵn cột ORDER_ID trong bảng kết quả</option>
             </select>
           </div>
@@ -331,7 +332,7 @@
 
         <div class="grid-3" id="box-order-config-detail">
           <div class="form-group-inline">
-            <label class="field-label">Tên Cột STT / Mã Chỉ Tiêu Trong Bảng Kết Quả</label>
+            <label class="field-label">Cột STT / Mã Chỉ Tiêu Trong Bảng Nguồn</label>
             <input type="text" id="cir-stt-col" class="field-input" value="A.STT" placeholder="VD: A.STT hoặc A.MA_CHI_TIEU" />
           </div>
           <div class="form-group-inline" id="box-order-col-name" style="display: none;">
@@ -339,20 +340,36 @@
             <input type="text" id="cir-order-col" class="field-input" value="A.ORDER_ID" placeholder="VD: A.ORDER_ID" />
           </div>
           <div class="form-group-inline" style="grid-column: span 2;">
-            <label class="field-label">Ghi Chú Về ORDER_ID</label>
+            <label class="field-label">Ghi Chú Khớp ORDER_ID</label>
             <div style="font-size: 12px; color: #64748B; padding-top: 6px;">
-              💡 <em>Chế độ <strong>CASE WHEN</strong> sẽ tự động chuyển các mã chỉ tiêu (ví dụ <code>1.1</code>, <code>1.2</code>, <code>2.2</code>) ở bảng mục 3 thành thứ tự số nguyên chuẩn <code>ORDER_ID</code> cho Engine báo cáo.</em>
+              💡 <em>Chế độ <strong>JOIN bảng tạm</strong> sẽ sinh subquery UNION ALL các mã chỉ tiêu (ví dụ <code>1.1</code>, <code>1.2</code>, <code>2.2</code>) ở bảng mục 3 và JOIN trực tiếp với bảng kết quả theo cột STT.</em>
             </div>
+          </div>
+        </div>
+
+        <!-- 3 Trường mới bổ sung cho bảng C_SOURCE_CODE -->
+        <div class="grid-3" style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-color);">
+          <div class="form-group-inline">
+            <label class="field-label">pre_source_code_id (Mặc định: null)</label>
+            <input type="text" id="cir-pre-source-id" class="field-input" value="NULL" placeholder="NULL" />
+          </div>
+          <div class="form-group-inline">
+            <label class="field-label">is_used (Mặc định: 1)</label>
+            <input type="number" id="cir-is-used" class="field-input" value="1" placeholder="1" />
+          </div>
+          <div class="form-group-inline">
+            <label class="field-label">order_id bảng C_SOURCE_CODE (Mặc định: 1)</label>
+            <input type="number" id="cir-source-order-id" class="field-input" value="1" placeholder="1" />
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Section 3: BẢNG CẤU HÌNH THỨ TỰ ORDER (MÃ CHỈ TIÊU / STT ⇄ ORDER_ID) -->
+    <!-- Section 3: BẢNG THỨ TỰ ORDER ĐỂ JOIN (MÃ CHỈ TIÊU / STT ⇄ ORDER_ID) -->
     <div class="circular-card">
       <div class="circular-card-header">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <span>3. BẢNG CẤU HÌNH THỨ TỰ ORDER &amp; MÃ CHỈ TIÊU (STT ➔ ORDER_ID)</span>
+          <span>3. BẢNG THỨ TỰ ORDER ĐỂ JOIN (MÃ CHỈ TIÊU STT ➔ ORDER_ID)</span>
           <span id="order-count-badge" class="badge-orange">0 chỉ tiêu</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
@@ -387,7 +404,7 @@
           </table>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 11px; color: #64748B;">
-          <span>💡 <em>Cột <strong>ORDER_ID</strong> sẽ được đưa vào câu truy vấn <code>sql_code</code> trong bảng <code>C_SOURCE_CODE</code> và sinh bảng cấu hình <code>C_ORDER_CONFIG</code>.</em></span>
+          <span>💡 <em>Cột <strong>ORDER_ID</strong> sẽ được sinh thành bảng tạm và JOIN trực tiếp với bảng kết quả theo cột STT trong câu truy vấn <code>sql_code</code> của bảng <code>C_SOURCE_CODE</code>.</em></span>
           <span style="color: var(--msb-orange-dark); font-weight: 600;">Quy tắc: Thứ tự số nguyên 1, 2, 3... tương ứng với từng chỉ tiêu.</span>
         </div>
       </div>
@@ -423,7 +440,6 @@
                 <th style="width: 40px; text-align: center;">STT</th>
                 <th style="width: 90px;">Cột Excel</th>
                 <th style="width: 90px;">Dòng Excel</th>
-                <th style="width: 100px;">Dòng DB (-1)</th>
                 <th>Tên Cột (item_name)</th>
                 <th>Cột Bảng Nguồn (ITEM_VALUE)</th>
                 <th style="width: 110px;">Kiểu DL</th>
@@ -1080,9 +1096,12 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       document.getElementById('cir-result-table').value = "{{silver}}.{{silver_schema}}.c_pre_mbnt_cv2401 A";
       document.getElementById('cir-branch-mode').value = "total";
       document.getElementById('cir-where-clause').value = "A.TRANS_TYPE = 'BUY' AND a.import_date = {{process_date}}";
-      document.getElementById('cir-order-mode').value = "case_stt";
+      document.getElementById('cir-order-mode').value = "join_subquery";
       document.getElementById('cir-stt-col').value = "A.STT";
       document.getElementById('cir-order-col').value = "A.ORDER_ID";
+      if (document.getElementById('cir-pre-source-id')) document.getElementById('cir-pre-source-id').value = "NULL";
+      if (document.getElementById('cir-is-used')) document.getElementById('cir-is-used').value = "1";
+      if (document.getElementById('cir-source-order-id')) document.getElementById('cir-source-order-id').value = "1";
       onBranchModeChange();
       onOrderModeChange();
 
@@ -1106,6 +1125,9 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       document.getElementById('cir-group-name').value = "";
       document.getElementById('cir-where-clause').value = "";
       document.getElementById('cir-sql-output').value = "";
+      if (document.getElementById('cir-pre-source-id')) document.getElementById('cir-pre-source-id').value = "NULL";
+      if (document.getElementById('cir-is-used')) document.getElementById('cir-is-used').value = "1";
+      if (document.getElementById('cir-source-order-id')) document.getElementById('cir-source-order-id').value = "1";
       circularColumns = [];
       circularOrders = [];
       renderColumnsTable();
@@ -1223,7 +1245,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       }
     }
 
-    // MAIN: SINH CÂU LỆNH INSERT CHO TẤT CẢ CÁC BẢNG
+    // MAIN: SINH CÂU LỆNH INSERT CHO 3 BẢNG (C_GROUP_ITEM, C_ITEM_ORG, C_SOURCE_CODE)
     function generateCircularSQL() {
       const groupCode = document.getElementById('cir-group-code').value.trim() || 'C00384';
       const sheetNo = document.getElementById('cir-sheet-no').value.trim() || '1';
@@ -1244,31 +1266,73 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       const sttCol = document.getElementById('cir-stt-col').value.trim() || 'A.STT';
       const directOrderCol = document.getElementById('cir-order-col').value.trim() || 'A.ORDER_ID';
 
+      // 3 trường bổ sung cho C_SOURCE_CODE
+      const preSourceInput = document.getElementById('cir-pre-source-id') ? document.getElementById('cir-pre-source-id').value.trim() : 'NULL';
+      const preSourceVal = (!preSourceInput || preSourceInput.toUpperCase() === 'NULL') ? 'NULL' : `'${escapeSqlStr(preSourceInput)}'`;
+      const isUsedInput = document.getElementById('cir-is-used') ? document.getElementById('cir-is-used').value.trim() : '1';
+      const isUsedVal = isUsedInput === '' ? '1' : isUsedInput;
+      const sourceOrderInput = document.getElementById('cir-source-order-id') ? document.getElementById('cir-source-order-id').value.trim() : '1';
+      const sourceOrderVal = sourceOrderInput === '' ? '1' : sourceOrderInput;
+
       if (circularColumns.length === 0) {
         alert("Vui lòng thêm ít nhất một cột cần cấu hình ở bảng mục 4!");
         return;
       }
 
-      // Xây dựng biểu thức ORDER_ID cho SQL
-      let orderSqlExpr = directOrderCol;
-      if (orderMode === 'case_stt' && circularOrders.length > 0) {
-        orderSqlExpr = `CASE ${sttCol}\n`;
+      const orderTableName = `c_report_order_${groupCode.toLowerCase()}`;
+
+      // Xây dựng câu truy vấn dữ liệu theo cơ chế JOIN bảng thứ tự c_report_order_{mã_bc} hoặc CASE
+      let fromAndJoinExpr = resultTable;
+      let orderColExpr = directOrderCol;
+
+      if (orderMode === 'join_subquery' && circularOrders.length > 0) {
+        orderColExpr = 'O.ORDER_ID';
+        fromAndJoinExpr = `${resultTable}\nJOIN ${orderTableName} O ON ${sttCol} = O.STT`;
+      } else if (orderMode === 'case_stt' && circularOrders.length > 0) {
+        orderColExpr = `CASE ${sttCol}\n`;
         circularOrders.forEach(ord => {
-          orderSqlExpr += `                WHEN '${escapeSqlStr(ord.stt)}' THEN ${ord.order_id}\n`;
+          orderColExpr += `                WHEN '${escapeSqlStr(ord.stt)}' THEN ${ord.order_id}\n`;
         });
-        orderSqlExpr += `                ELSE 999\n            END`;
+        orderColExpr += `                ELSE 999\n            END`;
       }
 
       let sql = `-- =========================================================================================\n`;
       sql += `-- SCRIPT TỰ ĐỘNG SINH CẤU HÌNH BÁO CÁO (MSB CIRCULAR CONFIG GENERATOR) - TUANPV\n`;
       sql += `-- MÃ BÁO CÁO: ${groupCode} | SHEET: ${sheetNo} (${sbvGroupCode}) | KỲ HẠN: ${termCode} (${termName})\n`;
+      sql += `-- BẢNG THỨ TỰ ORDER: ${orderTableName}\n`;
       sql += `-- THỜI GIAN SINH: ${new Date().toLocaleString('vi-VN')}\n`;
       sql += `-- =========================================================================================\n\n`;
 
-      // 1. C_GROUP_ITEM
-      sql += `-- -----------------------------------------------------------------------------------------\n`;
-      sql += `-- 1. INSERT VÀO BẢNG: C_GROUP_ITEM (Thông tin chung mẫu biểu)\n`;
-      sql += `-- -----------------------------------------------------------------------------------------\n`;
+      // 1. TẠO BẢNG THỨ TỰ ORDER NẾU CÓ CHỈ TIÊU
+      if (circularOrders.length > 0) {
+        sql += `-- =========================================================================================\n`;
+        sql += `-- 1. TẠO BẢNG THỨ TỰ CHỈ TIÊU: ${orderTableName} (JOIN VỚI BẢNG KẾT QUẢ)\n`;
+        sql += `-- =========================================================================================\n`;
+        sql += `DROP TABLE IF EXISTS ${orderTableName};\n\n`;
+        sql += `CREATE TABLE ${orderTableName} (\n`;
+        sql += `    stt VARCHAR(50),\n`;
+        sql += `    order_id INT,\n`;
+        sql += `    item_name VARCHAR(500)\n`;
+        sql += `);\n\n`;
+        circularOrders.forEach(ord => {
+          sql += `INSERT INTO ${orderTableName} (stt, order_id, item_name) VALUES ('${escapeSqlStr(ord.stt)}', ${ord.order_id}, '${escapeSqlStr(ord.item_name)}');\n`;
+        });
+        sql += `\nCOMMIT;\n\n\n`;
+      }
+
+      // 2. XÓA DỮ LIỆU CŨ THEO KEY CHUNG CỦA BÁO CÁO
+      sql += `-- =========================================================================================\n`;
+      sql += `-- 2. XÓA CẤU HÌNH CŨ THEO KEY CHUNG CỦA BÁO CÁO (TRÁNH TRÙNG LẶP DỮ LIỆU)\n`;
+      sql += `-- =========================================================================================\n`;
+      sql += `DELETE FROM C_GROUP_ITEM WHERE group_item_code = '${escapeSqlStr(groupCode)}';\n`;
+      sql += `DELETE FROM C_ITEM_ORG WHERE group_item_code = '${escapeSqlStr(groupCode)}';\n`;
+      sql += `DELETE FROM C_SOURCE_CODE WHERE org_item_code LIKE '${escapeSqlStr(groupCode)}_%';\n`;
+      sql += `COMMIT;\n\n\n`;
+
+      // 3. C_GROUP_ITEM
+      sql += `-- =========================================================================================\n`;
+      sql += `-- 3. INSERT VÀO BẢNG: C_GROUP_ITEM (Thông tin chung mẫu biểu)\n`;
+      sql += `-- =========================================================================================\n`;
       sql += `INSERT INTO C_GROUP_ITEM (\n`;
       sql += `    item_code_org,\n`;
       sql += `    group_item_code,\n`;
@@ -1289,10 +1353,10 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       sql += `    '${escapeSqlStr(isRerun)}'\n`;
       sql += `);\n\n\n`;
 
-      // 2. C_ITEM_ORG
-      sql += `-- -----------------------------------------------------------------------------------------\n`;
-      sql += `-- 2. INSERT VÀO BẢNG: C_ITEM_ORG (Cấu hình từng cột trên Template)\n`;
-      sql += `-- -----------------------------------------------------------------------------------------\n`;
+      // 4. C_ITEM_ORG
+      sql += `-- =========================================================================================\n`;
+      sql += `-- 4. INSERT VÀO BẢNG: C_ITEM_ORG (Cấu hình từng cột trên Template)\n`;
+      sql += `-- =========================================================================================\n`;
       circularColumns.forEach((col) => {
         const orgItemCode = `${groupCode}_${col.col_location}`;
         const rowDb = col.row_excel > 0 ? col.row_excel - 1 : 0;
@@ -1312,42 +1376,15 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       });
       sql += `\n\n`;
 
-      // 3. C_ORDER_CONFIG (BẢNG CẤU HÌNH THỨ TỰ ORDER / MÃ CHỈ TIÊU STT)
-      if (circularOrders.length > 0) {
-        sql += `-- -----------------------------------------------------------------------------------------\n`;
-        sql += `-- 3. INSERT VÀO BẢNG: C_ORDER_CONFIG (Cấu hình thứ tự ORDER_ID và Mã Chỉ Tiêu STT)\n`;
-        sql += `-- -----------------------------------------------------------------------------------------\n`;
-        circularOrders.forEach((ord) => {
-          sql += `INSERT INTO C_ORDER_CONFIG (\n`;
-          sql += `    group_item_code,\n`;
-          sql += `    sbv_group_item_code,\n`;
-          sql += `    stt_code,\n`;
-          sql += `    order_id,\n`;
-          sql += `    item_name,\n`;
-          sql += `    row_location,\n`;
-          sql += `    user_modify\n`;
-          sql += `) VALUES (\n`;
-          sql += `    '${escapeSqlStr(groupCode)}',\n`;
-          sql += `    '${escapeSqlStr(sbvGroupCode)}',\n`;
-          sql += `    '${escapeSqlStr(ord.stt)}',\n`;
-          sql += `    ${ord.order_id},\n`;
-          sql += `    '${escapeSqlStr(ord.item_name)}',\n`;
-          sql += `    ${ord.excel_row > 0 ? ord.excel_row - 1 : 0},\n`;
-          sql += `    '${escapeSqlStr(userModify)}'\n`;
-          sql += `);\n`;
-        });
-        sql += `\n\n`;
-      }
-
-      // 4. C_SOURCE_CODE
-      sql += `-- -----------------------------------------------------------------------------------------\n`;
-      sql += `-- 4. INSERT VÀO BẢNG: C_SOURCE_CODE (Nguồn SQL truy vấn đổ vào từng cột, kèm ORDER_ID)\n`;
-      sql += `-- -----------------------------------------------------------------------------------------\n`;
+      // 5. C_SOURCE_CODE
+      sql += `-- =========================================================================================\n`;
+      sql += `-- 5. INSERT VÀO BẢNG: C_SOURCE_CODE (Nguồn SQL đổ vào từng cột, kèm JOIN bảng thứ tự ORDER)\n`;
+      sql += `-- =========================================================================================\n`;
       circularColumns.forEach((col) => {
         const orgItemCode = `${groupCode}_${col.col_location}`;
         const sourceColExpr = col.source_col || `A.COL_${col.col_location}`;
 
-        let rawSql = `SELECT '${orgItemCode}' AS ORG_ITEM_CODE, ${sourceColExpr} AS ITEM_VALUE, ${branchSqlExpr} AS BRANCH_ID, ${orderSqlExpr} AS ORDER_ID FROM ${resultTable}`;
+        let rawSql = `SELECT '${orgItemCode}' AS ORG_ITEM_CODE, ${sourceColExpr} AS ITEM_VALUE, ${branchSqlExpr} AS BRANCH_ID, ${orderColExpr} AS ORDER_ID FROM ${fromAndJoinExpr}`;
         if (whereClause) {
           rawSql += ` WHERE ${whereClause}`;
         }
@@ -1357,11 +1394,17 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
         sql += `INSERT INTO C_SOURCE_CODE (\n`;
         sql += `    org_item_code,\n`;
         sql += `    use_procedure,\n`;
-        sql += `    sql_code\n`;
+        sql += `    sql_code,\n`;
+        sql += `    pre_source_code_id,\n`;
+        sql += `    is_used,\n`;
+        sql += `    order_id\n`;
         sql += `) VALUES (\n`;
         sql += `    '${escapeSqlStr(orgItemCode)}',\n`;
         sql += `    NULL,\n`;
-        sql += `    '${escapedSql}'\n`;
+        sql += `    '${escapedSql}',\n`;
+        sql += `    ${preSourceVal},\n`;
+        sql += `    ${isUsedVal},\n`;
+        sql += `    ${sourceOrderVal}\n`;
         sql += `);\n`;
       });
 
@@ -1369,7 +1412,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       sql += `-- ======================= HOÀN TẤT SINH CẤU HÌNH CHO ${groupCode} =======================\n`;
 
       document.getElementById('cir-sql-output').value = sql;
-      showToast(`Đã sinh thành công script SQL (${circularColumns.length} cột, ${circularOrders.length} chỉ tiêu Order)!`);
+      showToast(`Đã sinh thành công script SQL cho ${groupCode} (${circularColumns.length} cột, bảng ${orderTableName})!`);
     }
 
     function copyCircularSQL() {
