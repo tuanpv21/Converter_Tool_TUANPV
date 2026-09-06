@@ -613,10 +613,19 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json(200, {"logged_in": False})
             return
 
-        # Trang chính HTML
-        html_bytes = HTML_PAGE.encode("utf-8")
+        # Trang chính HTML (Tự động tải index.html mới nhất kèm Cache-Busting)
+        index_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+        if os.path.exists(index_file):
+            with open(index_file, "r", encoding="utf-8") as f:
+                html_bytes = f.read().encode("utf-8")
+        else:
+            html_bytes = HTML_PAGE.encode("utf-8")
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.send_header("Content-Length", str(len(html_bytes)))
         self.end_headers()
         self.wfile.write(html_bytes)

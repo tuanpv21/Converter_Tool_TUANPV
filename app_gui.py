@@ -112,7 +112,24 @@ class BiDirectionalSQLApp(tk.Tk):
             relief=tk.GROOVE,
             cursor="hand2"
         )
-        btn_swap_content.pack(side=tk.LEFT, padx=(0, 15))
+        btn_swap_content.pack(side=tk.LEFT, padx=(0, 10))
+
+        # Dropdown chọn dialect Presto
+        lbl_dialect = tk.Label(toolbar, text="Phiên bản Presto:", font=("Segoe UI", 9, "bold"), fg="#334155", bg="#f8fafc")
+        lbl_dialect.pack(side=tk.LEFT, padx=(5, 4))
+
+        self.dialect_var = tk.StringVar(value="presto")
+        self.combo_dialect = ttk.Combobox(
+            toolbar,
+            textvariable=self.dialect_var,
+            values=["presto (PrestoDB 0.2xx)", "trino (Trino 330+/400+)", "athena (AWS Athena)"],
+            state="readonly",
+            width=26,
+            font=("Segoe UI", 9)
+        )
+        self.combo_dialect.current(0)
+        self.combo_dialect.pack(side=tk.LEFT, padx=(0, 15))
+        self.combo_dialect.bind("<<ComboboxSelected>>", lambda e: self.on_dialect_changed())
 
         self.mode_desc_var = tk.StringVar(value="Chế độ hiện tại: Nhập Presto SQL ➔ Chuyển thành Spark SQL")
         lbl_mode_desc = tk.Label(toolbar, textvariable=self.mode_desc_var, font=("Segoe UI", 9, "italic"), fg="#475569", bg="#f8fafc")
@@ -297,19 +314,33 @@ class BiDirectionalSQLApp(tk.Tk):
         self.status_var.set("Đã sao chép kết quả vào Clipboard!")
         messagebox.showinfo("Thông báo", "Đã sao chép vào bộ nhớ đệm (Clipboard)!")
 
+    def get_selected_dialect(self):
+        raw = self.dialect_var.get()
+        if "trino" in raw:
+            return "trino"
+        if "athena" in raw:
+            return "athena"
+        return "presto"
+
+    def on_dialect_changed(self):
+        query = self.txt_in.get("1.0", tk.END).strip()
+        if query:
+            self.do_convert()
+
     def do_convert(self):
         query = self.txt_in.get("1.0", tk.END).strip()
         if not query:
             messagebox.showwarning("Cảnh báo", "Vui lòng nhập câu lệnh SQL cần chuyển đổi!")
             return
 
+        dialect = self.get_selected_dialect()
         try:
-            res = convert_sql(query, mode=self.current_mode)
+            res = convert_sql(query, mode=self.current_mode, presto_dialect=dialect)
             self.txt_out.delete("1.0", tk.END)
             self.txt_out.insert(tk.END, res)
             lines_in = len(query.splitlines())
             lines_out = len(res.splitlines())
-            self.status_var.set(f"✅ Chuyển đổi thành công [{self.current_mode.upper()}] ({lines_in} dòng -> {lines_out} dòng)")
+            self.status_var.set(f"✅ Chuyển đổi thành công [{self.current_mode.upper()} - {dialect.upper()}] ({lines_in} dòng -> {lines_out} dòng)")
         except Exception as e:
             self.status_var.set(f"❌ Có lỗi xảy ra: {str(e)}")
             messagebox.showerror("Lỗi chuyển đổi", f"Chi tiết lỗi:\n{str(e)}")

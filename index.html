@@ -100,9 +100,9 @@
         <div style="display: inline-flex; align-items: center; gap: 6px; background: #131f37; border: 1px solid #334155; padding: 4px 10px; border-radius: 6px;">
           <span style="font-size: 12px; font-weight: 600; color: #94a3b8;">Phiên bản Presto:</span>
           <select id="presto-version" onchange="onPrestoVersionChange()" style="background: #090e1a; color: #38bdf8; border: 1px solid #0284c7; border-radius: 4px; padding: 4px 8px; font-size: 12px; font-weight: 600; outline: none; cursor: pointer;">
-            <option value="presto" selected>PrestoDB (0.2xx / EMR / Athena v2)</option>
-            <option value="trino">Trino (PrestoSQL 330+ / Trino 400+ / Athena v3)</option>
-            <option value="athena">AWS Athena Engine</option>
+            <option value="presto" selected>PrestoDB (0.2xx / EMR / Athena v2 - Cú pháp UNNEST trực tiếp)</option>
+            <option value="trino">Trino (PrestoSQL 330+ / Trino 400+ - Hỗ trợ Subquery LATERAL)</option>
+            <option value="athena">AWS Athena (Tương thích đồng thời Athena v2 &amp; v3)</option>
           </select>
         </div>
 
@@ -154,11 +154,39 @@
         // Khoi tao script python AST
         await pyodide.runPythonAsync(`
 import sqlglot
+import re
 
-def transpile_sql(sql_code, read_d, write_d):
+def post_process_presto(sql, dialect, original_spark_sql=""):
+    if dialect in ("presto", "athena"):
+        # Unwrap subquery bọc UNNEST trong CROSS JOIN LATERAL (PrestoDB / Athena v2 không hỗ trợ subquery)
+        # 1. Có WITH ORDINALITY
+        pattern_ord = r'(?is)CROSS\\s+JOIN\\s+LATERAL\\s*\\(\\s*SELECT\\s+.*?\\s+FROM\\s+(UNNEST\\s*\\(.*?\\)\\s+WITH\\s+ORDINALITY\\s+AS\\s+[a-zA-Z0-9_]+(?:\\s*\\([^)]+\\))?)\\s*\\)'
+        sql = re.sub(pattern_ord, r'CROSS JOIN \\1', sql)
+
+        # 2. Không có WITH ORDINALITY
+        pattern_plain = r'(?is)CROSS\\s+JOIN\\s+LATERAL\\s*\\(\\s*SELECT\\s+.*?\\s+FROM\\s+(UNNEST\\s*\\(.*?\\)\\s+AS\\s+[a-zA-Z0-9_]+(?:\\s*\\([^)]+\\))?)\\s*\\)'
+        sql = re.sub(pattern_plain, r'CROSS JOIN \\1', sql)
+
+    # Đảm bảo thứ tự cột UNNEST WITH ORDINALITY: cột 1 là value, cột 2 là ordinality
+    if original_spark_sql:
+        m_spark = re.search(r'(?is)POSEXPLODE\\s*\\([^)]+\\)\\s*(?:[a-zA-Z0-9_]+\\s+)?AS\\s+([a-zA-Z0-9_]+)\\s*,\\s*([a-zA-Z0-9_]+)', original_spark_sql)
+        if m_spark:
+            pos_alias, val_alias = m_spark.group(1), m_spark.group(2)
+            bad_pat = rf'(?i)(WITH\\s+ORDINALITY\\s+AS\\s+[a-zA-Z0-9_]+\\s*\\()\\s*{pos_alias}\\s*,\\s*{val_alias}\\s*(\\))'
+            sql = re.sub(bad_pat, rf'\\g<1>{val_alias}, {pos_alias}\\2', sql)
+
+    if dialect == "trino":
+        sql = re.sub(r'(?i)\\bformat_datetime\\s*\\(', 'date_format(', sql)
+        
+    return sql
+
+def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto"):
     try:
         res = sqlglot.transpile(sql_code, read=read_d, write=write_d, pretty=True)
-        return ";\\n\\n".join(res)
+        out = ";\\n\\n".join(res)
+        if write_d in ("presto", "trino", "athena"):
+            out = post_process_presto(out, presto_dialect, original_spark_sql=sql_code)
+        return out
     except Exception as e:
         return f"__ERROR__:{str(e)}"
         `);
@@ -255,9 +283,13 @@ def transpile_sql(sql_code, read_d, write_d):
     }
 
     // 3. REGEX FALLBACK ENGINE (CLIENT JAVASCRIPT)
-    function regexConvert(sql, mode) {
+    function regexConvert(sql, mode, prestoDialect = 'presto') {
       let res = sql;
       if (mode === 'presto2spark') {
+        // Lateral View Unnest -> Spark Explode / Posexplode
+        res = res.replace(/CROSS\s+JOIN\s+UNNEST\s*\(\s*([^)]+?)\s*\)\s+WITH\s+ORDINALITY\s+AS\s+([a-zA-Z0-9_]+)\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gis, 'LATERAL VIEW POSEXPLODE($1) $2 AS $4, $3');
+        res = res.replace(/CROSS\s+JOIN\s+UNNEST\s*\(\s*([^)]+?)\s*\)\s+AS\s+([a-zA-Z0-9_]+)\s*\(\s*([^)]+?)\s*\)/gis, 'LATERAL VIEW EXPLODE($1) $2 AS $3');
+        res = res.replace(/CROSS\s+JOIN\s+LATERAL\s*\(\s*SELECT\s+.*?\s+FROM\s+UNNEST\s*\(\s*([^)]+?)\s*\)\s+WITH\s+ORDINALITY\s+AS\s+([a-zA-Z0-9_]+)\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*\)/gis, 'LATERAL VIEW POSEXPLODE($1) $2 AS $4, $3');
         // Types
         res = res.replace(/\bVARCHAR\b/gi, 'STRING');
         res = res.replace(/\bVARBINARY\b/gi, 'BINARY');
@@ -265,7 +297,7 @@ def transpile_sql(sql_code, read_d, write_d):
         // Dates & Timestamps
         res = res.replace(/\bdate_parse\s*\(\s*([^,]+?)\s*,\s*['"]%Y-%m-%d['"]\s*\)/gi, 'to_date($1, "yyyy-MM-dd")');
         res = res.replace(/\bdate_parse\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'to_timestamp($1, $2)');
-        res = res.replace(/\bformat_datetime\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_format($1, $2)');
+        res = res.replace(/\b(?:format_datetime|date_format)\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_format($1, $2)');
         res = res.replace(/\bnow\s*\(\s*\)/gi, 'current_timestamp()');
         res = res.replace(/\bcurrent_date\b(?!\s*\()/gi, 'current_date()');
         res = res.replace(/\bdate_add\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_add($2, $1)');
@@ -287,13 +319,25 @@ def transpile_sql(sql_code, read_d, write_d):
         res = res.replace(/\barbitrary\s*\(/gi, 'first(');
         res = res.replace(/s3:\/\//g, 's3a://');
       } else {
+        // spark2presto
+        if (prestoDialect === 'trino') {
+          res = res.replace(/LATERAL\s+VIEW\s+(?:OUTER\s+)?POSEXPLODE\s*\(\s*([^)]+?)\s*\)\s*([a-zA-Z0-9_]+)?\s*AS\s+([^,\s]+)\s*,\s*([^\s,;]+)/gis, 'CROSS JOIN LATERAL (SELECT $3 - 1 AS $3, $4 FROM UNNEST($1) WITH ORDINALITY AS $2($4, $3))');
+          res = res.replace(/\bformat_datetime\s*\(/gi, 'date_format(');
+        } else {
+          // PrestoDB / Athena: Direct UNNEST
+          res = res.replace(/LATERAL\s+VIEW\s+(?:OUTER\s+)?POSEXPLODE\s*\(\s*([^)]+?)\s*\)\s*([a-zA-Z0-9_]+)?\s*AS\s+([^,\s]+)\s*,\s*([^\s,;]+)/gis, 'CROSS JOIN UNNEST($1) WITH ORDINALITY AS $2($4, $3)');
+        }
+        res = res.replace(/LATERAL\s+VIEW\s+(?:OUTER\s+)?EXPLODE\s*\(\s*([^)]+?)\s*\)\s*([a-zA-Z0-9_]+)?\s*AS\s+([^\s,;]+)/gis, 'CROSS JOIN UNNEST($1) AS $2($3)');
+        res = res.replace(/AS\s+\(([^)]+)\)/g, 'AS _t0($1)');
+
         // Types
         res = res.replace(/\bSTRING\b/gi, 'VARCHAR');
         // Dates & Timestamps
         res = res.replace(/\bto_date\s*\(\s*([^,]+?)\s*,\s*['"]yyyy-MM-dd['"]\s*\)/gi, "date_parse($1, '%Y-%m-%d')");
         res = res.replace(/\bto_date\s*\(\s*([^,]+?)\s*\)/gi, "date_parse($1, '%Y-%m-%d')");
         res = res.replace(/\bto_timestamp\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_parse($1, $2)');
-        res = res.replace(/\bdate_format\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'format_datetime($1, $2)');
+        const dateFmt = prestoDialect === 'trino' ? 'date_format' : 'format_datetime';
+        res = res.replace(/\bdate_format\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, `${dateFmt}($1, $2)`);
         res = res.replace(/\bcurrent_timestamp\s*\(\s*\)/gi, 'now()');
         res = res.replace(/\bdate_add\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_add('day', $2, $1)");
         res = res.replace(/\badd_months\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_add('month', $2, $1)");
@@ -343,7 +387,7 @@ def transpile_sql(sql_code, read_d, write_d):
       const dialect = getPrestoDialect();
       if (dialect === 'trino') return 'Trino';
       if (dialect === 'athena') return 'Athena';
-      return 'Presto';
+      return 'PrestoDB';
     }
 
     function onPrestoVersionChange() {
@@ -376,16 +420,17 @@ def transpile_sql(sql_code, read_d, write_d):
           pyodide.globals.set("g_sql", input);
           pyodide.globals.set("g_read", read_d);
           pyodide.globals.set("g_write", write_d);
-          const res = await pyodide.runPythonAsync(`transpile_sql(g_sql, g_read, g_write)`);
+          pyodide.globals.set("g_dialect", prestoDialect);
+          const res = await pyodide.runPythonAsync(`transpile_sql(g_sql, g_read, g_write, g_dialect)`);
           
           if (res.startsWith("__ERROR__:")) {
             console.warn("sqlglot AST parse warning, fallback regex:", res);
-            const convertedRegex = regexConvert(input, currentMode);
+            const convertedRegex = regexConvert(input, currentMode, prestoDialect);
             document.getElementById('sql-output').value = restoreVariables(convertedRegex, varsList);
             document.getElementById('status-bar').innerText = "✅ Đã chuyển đổi bằng Rule Engine (Cú pháp ngoại lệ)";
           } else {
             document.getElementById('sql-output').value = restoreVariables(res, varsList);
-            document.getElementById('status-bar').innerText = `✅ Chuyển đổi thành công bằng sqlglot AST (${write_d.toUpperCase()})!`;
+            document.getElementById('status-bar').innerText = `✅ Chuyển đổi thành công bằng sqlglot AST (${write_d.toUpperCase()} - ${prestoDialect.toUpperCase()})!`;
           }
           return;
         } catch (e) {
@@ -394,9 +439,9 @@ def transpile_sql(sql_code, read_d, write_d):
       }
 
       // Fallback
-      const convertedFallback = regexConvert(input, currentMode);
+      const convertedFallback = regexConvert(input, currentMode, prestoDialect);
       document.getElementById('sql-output').value = restoreVariables(convertedFallback, varsList);
-      document.getElementById('status-bar').innerText = "✅ Chuyển đổi thành công (Client Regex Engine)";
+      document.getElementById('status-bar').innerText = `✅ Chuyển đổi thành công (Client Regex Engine - ${prestoDialect.toUpperCase()})`;
     }
 
     // 6. SAMPLE QUERIES & UI
