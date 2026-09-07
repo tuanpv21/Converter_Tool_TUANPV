@@ -81,19 +81,108 @@ def post_process_presto_dialect(sql: str, dialect: str, original_spark_sql: str 
     return sql
 
 
+def pre_process_spark_ast(expression):
+    from sqlglot import exp
+    from sqlglot.optimizer.annotate_types import annotate_types
+
+    # 1. months_between(d1, d2) -> date_diff('month', d2, d1)
+    for mb in expression.find_all(exp.MonthsBetween):
+        d1 = mb.this
+        d2 = mb.expression
+        diff = exp.DateDiff(this=d1.copy(), expression=d2.copy(), unit=exp.var('month'))
+        mb.replace(diff)
+    for anon in expression.find_all(exp.Anonymous):
+        if anon.this.upper() == 'MONTHS_BETWEEN':
+            args = anon.expressions
+            if len(args) >= 2:
+                d1 = args[0]
+                d2 = args[1]
+                diff = exp.DateDiff(this=d1.copy(), expression=d2.copy(), unit=exp.var('month'))
+                anon.replace(diff)
+
+    # 2. isnull(x) -> x IS NULL, isnotnull(x) -> NOT (x IS NULL)
+    for anon in expression.find_all(exp.Anonymous):
+        name = anon.this.upper()
+        if name == 'ISNULL' and len(anon.expressions) == 1:
+            arg = anon.expressions[0]
+            anon.replace(exp.Is(this=arg.copy(), expression=exp.Null()))
+        elif name == 'ISNOTNULL' and len(anon.expressions) == 1:
+            arg = anon.expressions[0]
+            anon.replace(exp.Not(this=exp.Is(this=arg.copy(), expression=exp.Null())))
+
+    # 3. Đồng bộ kiểu dữ liệu (Harmonize CAST) trong CASE WHEN để Presto không báo lỗi incompatible types
+    try:
+        annotated = annotate_types(expression)
+        for case_node in annotated.find_all(exp.Case):
+            branches = []
+            for if_node in case_node.args.get('ifs', []):
+                if if_node.args.get('true'):
+                    branches.append(('if', if_node, if_node.args['true']))
+            if case_node.args.get('default'):
+                branches.append(('default', case_node, case_node.args['default']))
+            
+            types = []
+            for _, _, val_node in branches:
+                if val_node.type and not val_node.type.is_type('null', 'unknown'):
+                    types.append(val_node.type)
+            
+            if len(types) <= 1:
+                continue
+                
+            type_keys = set(t.this for t in types)
+            if len(type_keys) <= 1:
+                continue
+                
+            has_str = any(t.this in exp.DataType.TEXT_TYPES for t in types)
+            has_double = any(t.this in (exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT) for t in types)
+            has_int = any(t.this in exp.DataType.INTEGER_TYPES for t in types)
+            has_date = any(t.this == exp.DataType.Type.DATE for t in types)
+            has_ts = any(t.this in (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.DATETIME) for t in types)
+            
+            target_type = None
+            if has_str:
+                target_type = exp.DataType.build('varchar')
+            elif has_double and has_int:
+                target_type = exp.DataType.build('double')
+            elif has_ts and has_date:
+                target_type = exp.DataType.build('timestamp')
+                
+            if target_type:
+                for kind, parent, val_node in branches:
+                    if val_node.type and val_node.type.this != target_type.this and not val_node.type.is_type('null'):
+                        casted = exp.Cast(this=val_node.copy(), to=target_type.copy())
+                        if kind == 'if':
+                            parent.set('true', casted)
+                        else:
+                            parent.set('default', casted)
+    except Exception:
+        pass
+
+    return expression
+
+
 # ==========================================
 # 3. TRANSPILE BẰNG SQLGLOT (AST ENGINE)
 # ==========================================
 def transpile_with_sqlglot(sql_content: str, read_dialect: str, write_dialect: str, presto_dialect: str = "presto") -> str:
     try:
         import sqlglot
-        transpiled = sqlglot.transpile(
-            sql_content,
-            read=read_dialect,
-            write=write_dialect,
-            pretty=True
-        )
-        res = ";\n\n".join(transpiled)
+        if read_dialect == "spark" and write_dialect in ("presto", "trino", "athena"):
+            parsed_list = sqlglot.parse(sql_content, read="spark")
+            out_list = []
+            for parsed in parsed_list:
+                if parsed:
+                    processed = pre_process_spark_ast(parsed)
+                    out_list.append(processed.sql(write_dialect, pretty=True))
+            res = ";\n\n".join(out_list)
+        else:
+            transpiled = sqlglot.transpile(
+                sql_content,
+                read=read_dialect,
+                write=write_dialect,
+                pretty=True
+            )
+            res = ";\n\n".join(transpiled)
         if write_dialect in ("presto", "trino", "athena"):
             res = post_process_presto_dialect(res, presto_dialect, original_spark_sql=sql_content)
         return res
@@ -172,7 +261,11 @@ class RegexRuleConverter:
                 (r'(?i)\bcurrent_timestamp\s*\(\s*\)', 'now()'),
                 (r'(?i)\bdate_add\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', r'date_add(\'day\', \2, \1)'),
                 (r'(?i)\badd_months\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', r'date_add(\'month\', \2, \1)'),
+                (r'(?i)\bmonths_between\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', r'date_diff(\'month\', \2, \1)'),
                 (r'(?i)\bdatediff\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', r'date_diff(\'day\', \2, \1)'),
+                (r'(?i)\bisnull\s*\(\s*([^)]+?)\s*\)', r'(\1 IS NULL)'),
+                (r'(?i)\bisnotnull\s*\(\s*([^)]+?)\s*\)', r'(\1 IS NOT NULL)'),
+                (r'(?i)\bnvl\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', r'coalesce(\1, \2)'),
                 # JSON
                 (r'(?i)\bget_json_object\s*\(', 'json_extract_scalar('),
                 # String
