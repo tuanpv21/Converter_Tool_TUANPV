@@ -127,27 +127,6 @@
 </head>
 <body>
 
-  <!-- LOGIN MODAL -->
-  <div id="login-modal" class="modal-overlay">
-    <div class="auth-card">
-      <div style="text-align: center; margin-bottom: 12px;">
-        <span style="font-size: 36px;">🏛️</span>
-      </div>
-      <h2 class="auth-title">MSB - Xác Thực Hệ Thống</h2>
-      <p class="auth-sub">Nhập mật khẩu truy cập hệ thống TUANPV</p>
-      <div id="login-error" class="auth-error">Mật khẩu không chính xác!</div>
-      <form onsubmit="handleLogin(event)">
-        <div class="form-group">
-          <label class="form-label">Mật khẩu truy cập</label>
-          <input type="password" id="access-password" class="form-input" required placeholder="Nhập mật khẩu..." autofocus />
-        </div>
-        <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; padding: 11px; font-size: 14px;">
-          Mở Khóa Hệ Thống ➔
-        </button>
-      </form>
-    </div>
-  </div>
-
   <!-- APP HEADER -->
   <header>
     <div class="header-left">
@@ -168,6 +147,9 @@
         <button id="nav-btn-transpiler" class="nav-tab active" onclick="switchNavTab('transpiler')">
           ⚡ SQL Transpiler (Presto ⇄ Spark)
         </button>
+        <button id="nav-btn-pipeline" class="nav-tab" onclick="switchNavTab('pipeline')">
+          🔄 Tool Gent Data Flow C_PRE_SOURCE_CODE Circular
+        </button>
         <button id="nav-btn-circular" class="nav-tab" onclick="switchNavTab('circular')">
           📊 Tool Gent Config File Circular
         </button>
@@ -177,7 +159,6 @@
     <div class="engine-status">
       <span id="engine-dot" class="dot"></span>
       <span id="engine-text">Đang tải WebAssembly sqlglot...</span>
-      <button id="btn-lock" class="btn-secondary" style="padding: 4px 10px; font-size: 11px; margin-left: 10px; display: none;" onclick="handleLogout()">🔒 Khóa</button>
     </div>
   </header>
 
@@ -488,6 +469,152 @@
     </div>
   </div>
 
+  <!-- ============================================================== -->
+  <!-- TAB 3: TOOL GENT DATA FLOW C_PRE_SOURCE_CODE CIRCULAR          -->
+  <!-- ============================================================== -->
+  <div id="view-pipeline" class="circular-view" style="display: none;">
+    <!-- Top Action Bar -->
+    <div class="circular-header-bar">
+      <div>
+        <h2 style="font-size: 16px; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 8px;">
+          <span style="color: var(--msb-red);">MSB</span> - Tool Gent Data Flow C_PRE_SOURCE_CODE Circular
+        </h2>
+        <p style="font-size: 12px; color: #64748B; margin-top: 3px;">
+          Nhập script Presto nhiều bước (DELETE, INSERT...), tự động chuyển đổi sang <strong>Spark SQL</strong> và sinh câu lệnh <code>INSERT INTO prod_gold_ssd.sbv_report.c_pre_source_code</code>
+        </p>
+      </div>
+      <div class="btn-group">
+        <button class="btn-primary" onclick="generatePipelineSQL()">🚀 Sinh Câu Lệnh INSERT</button>
+        <button class="btn-secondary" onclick="loadSamplePipeline()">📄 Nạp Mẫu Thử</button>
+        <button class="btn-secondary" onclick="clearPipelineForm()">🗑️ Xóa Trắng</button>
+      </div>
+    </div>
+
+    <!-- Section 1: Metadata Config -->
+    <div class="circular-card">
+      <div class="circular-card-header">
+        <span>1. THÔNG TIN CHUNG BÁO CÁO (METADATA)</span>
+        <span style="font-size: 11px; color: #64748B; font-weight: normal;">(Áp dụng cho các dòng INSERT vào c_pre_source_code)</span>
+      </div>
+      <div class="circular-card-body">
+        <div class="grid-6">
+          <div class="form-group-inline">
+            <label class="field-label">Group Báo Cáo (grp_job)</label>
+            <input type="text" id="pipe-grp-job" class="field-input" value="C_PRE_STAT" placeholder="VD: C_PRE_STAT" />
+          </div>
+          <div class="form-group-inline">
+            <label class="field-label">Mã Báo Cáo (sbv_group_item_code_org)</label>
+            <input type="text" id="pipe-report-code" class="field-input" value="c_pre_sao_ke_lending" placeholder="VD: c_pre_sao_ke_lending" />
+          </div>
+          <div class="form-group-inline">
+            <label class="field-label">Kỳ Báo Cáo (term_code)</label>
+            <select id="pipe-term-code" class="field-select" onchange="onPipeTermCodeChange()">
+              <option value="D" selected>D - Hàng Ngày</option>
+              <option value="M">M - Hàng Tháng</option>
+              <option value="Q">Q - Hàng Quý</option>
+              <option value="Y">Y - Hàng Năm</option>
+              <option value="H">H - Nửa Năm</option>
+            </select>
+          </div>
+          <div class="form-group-inline">
+            <label class="field-label">Kỳ Chạy Lại (rerun_term)</label>
+            <input type="text" id="pipe-rerun-term" class="field-input" value="TRUOC_CIC" placeholder="VD: TRUOC_CIC" />
+          </div>
+          <div class="form-group-inline">
+            <label class="field-label">Sử Dụng (is_used)</label>
+            <select id="pipe-is-used" class="field-select">
+              <option value="1" selected>1 - Có sử dụng</option>
+              <option value="0">0 - Tạm tắt</option>
+            </select>
+          </div>
+          <div class="form-group-inline">
+            <label class="field-label" title="Thứ tự bắt đầu (order_id) và khoảng cách giữa các bước">Thứ Tự Đầu / Bước Nhảy</label>
+            <div style="display: flex; gap: 4px;">
+              <input type="number" id="pipe-order-start" class="field-input" value="1" style="width: 50%;" title="Thứ tự bắt đầu của bước đầu tiên" />
+              <input type="number" id="pipe-order-step" class="field-input" value="1" style="width: 50%;" title="Khoảng cách giữa các bước kế tiếp (vd: 1 ➔ 1, 2, 3... hoặc 10 ➔ 10, 20, 30...)" />
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px dashed #E2E8F0; flex-wrap: wrap; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #334155; cursor: pointer;">
+            <input type="checkbox" id="pipe-gen-delete" checked style="accent-color: var(--msb-orange);" />
+            <span>Sinh câu lệnh DELETE cấu hình cũ theo key <code>sbv_group_item_code_org</code> và <code>order_id</code></span>
+          </label>
+          <span style="font-size: 11px; color: #64748B;">💡 <em><strong>Thứ tự đầu:</strong> số thứ tự của bước 1. <strong>Bước nhảy:</strong> khoảng cách cộng dồn cho mỗi bước tiếp theo (vd: bước nhảy = 1 ➔ 1, 2, 3...; bước nhảy = 10 ➔ 10, 20, 30...).</em></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 2: Input Multi-step Presto Script -->
+    <div class="circular-card">
+      <div class="circular-card-header">
+        <span>2. NHẬP SCRIPT PRESTO NHIỀU BƯỚC (Hỗ trợ phân tách bằng ';' hoặc comment tag)</span>
+        <div class="btn-group">
+          <button class="btn-primary" onclick="parseAndConvertPipelineScript()" style="padding: 5px 12px; font-size: 12px;">⚡ Phân Tích &amp; Convert sang Spark</button>
+        </div>
+      </div>
+      <div class="circular-card-body">
+        <textarea id="pipe-sql-input" style="width: 100%; height: 180px; background: #0F172A; color: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; line-height: 1.5; resize: vertical;" placeholder="-- Dán toàn bộ các câu lệnh Presto vào đây, phân tách bằng dấu chấm phẩy ';'
+-- Gợi ý: Có thể đặt comment phía trên câu lệnh để đặt mô tả bước:
+-- [BƯỚC 1]: Xóa dữ liệu kỳ cũ
+DELETE FROM prod_gold_ssd.sbv_report.c_report_order_b00304 WHERE report_date = '{{process_date}}';
+
+-- [BƯỚC 2]: Tính toán chỉ tiêu tiền gửi
+INSERT INTO prod_gold_ssd.sbv_report.f_report_b00304
+SELECT cust_id, date_diff('month', open_date, current_date) as active_months
+FROM ods.customer_logs
+WHERE partition_date = '{{process_date}}';"></textarea>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 11px; color: #64748B;">
+          <span>💡 <em>Mẹo: Công cụ tự động nhận diện <strong>Hành động</strong> (DELETE/INSERT...), <strong>Tên bảng tác động</strong> và convert sang <strong>Spark SQL</strong> chuẩn xác.</em></span>
+          <span id="pipe-parse-status" style="font-weight: 700; color: #047857;"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 3: Interactive Steps Grid -->
+    <div class="circular-card">
+      <div class="circular-card-header">
+        <span>3. DANH SÁCH CÁC BƯỚC THỰC THI (ĐÃ PHÂN TÍCH &amp; CONVERT SPARK SQL)</span>
+        <div class="btn-group">
+          <button class="btn-secondary" onclick="addManualPipelineStep()" style="padding: 4px 10px; font-size: 11px;">➕ Thêm Bước</button>
+        </div>
+      </div>
+      <div class="circular-card-body">
+        <div class="col-table-wrapper" style="max-height: 320px;">
+          <table class="col-table" id="pipe-steps-table">
+            <thead>
+              <tr>
+                <th style="width: 75px; text-align: center;">Thứ tự<br/>(order_id)</th>
+                <th style="width: 110px;">Hành động<br/>("action")</th>
+                <th style="width: 250px;">Bảng tác động<br/>(table_name)</th>
+                <th style="width: 220px;">Mô tả câu lệnh<br/>(description_sql_code)</th>
+                <th>Câu lệnh Spark SQL (sql_code)</th>
+                <th style="width: 55px; text-align: center;">Xóa</th>
+              </tr>
+            </thead>
+            <tbody id="pipe-steps-tbody">
+              <!-- Render dynamic rows -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 4: Output SQL Script -->
+    <div class="circular-card" style="flex: 1; min-height: 380px; display: flex; flex-direction: column;">
+      <div class="circular-card-header" style="color: #047857;">
+        <span>📤 KẾT QUẢ SCRIPT INSERT BẢNG: C_PRE_SOURCE_CODE</span>
+        <div class="btn-group">
+          <button class="btn-copy" onclick="copyPipelineSQL()">📋 Sao Chép SQL</button>
+          <button class="btn-primary" onclick="downloadPipelineSQL()">💾 Tải File .sql</button>
+        </div>
+      </div>
+      <div style="flex: 1; display: flex; flex-direction: column;">
+        <textarea id="pipe-sql-output" readonly style="flex: 1; width: 100%; min-height: 280px; background: #090E1A; color: #34D399; font-family: monospace; font-size: 12px; padding: 14px; border: none; outline: none; line-height: 1.5; resize: none;" placeholder="Nhấn nút '🚀 Sinh Câu Lệnh INSERT' ở trên để tạo toàn bộ script SQL..."></textarea>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast">Thông báo</div>
 
   <!-- ============================================================== -->
@@ -643,92 +770,25 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
     function switchNavTab(tab) {
       currentActiveTab = tab;
       const btnTranspiler = document.getElementById('nav-btn-transpiler');
+      const btnPipeline = document.getElementById('nav-btn-pipeline');
       const btnCircular = document.getElementById('nav-btn-circular');
       const viewTranspiler = document.getElementById('view-transpiler');
+      const viewPipeline = document.getElementById('view-pipeline');
       const viewCircular = document.getElementById('view-circular');
 
-      if (tab === 'transpiler') {
-        btnTranspiler.classList.add('active');
-        btnCircular.classList.remove('active');
-        viewTranspiler.style.display = 'flex';
-        viewCircular.style.display = 'none';
-      } else {
-        btnCircular.classList.add('active');
-        btnTranspiler.classList.remove('active');
-        viewTranspiler.style.display = 'none';
-        viewCircular.style.display = 'flex';
-        if (circularColumns.length === 0) {
-          loadSampleCircular();
-        }
+      btnTranspiler.classList.toggle('active', tab === 'transpiler');
+      if (btnPipeline) btnPipeline.classList.toggle('active', tab === 'pipeline');
+      btnCircular.classList.toggle('active', tab === 'circular');
+
+      viewTranspiler.style.display = tab === 'transpiler' ? 'flex' : 'none';
+      if (viewPipeline) viewPipeline.style.display = tab === 'pipeline' ? 'flex' : 'none';
+      viewCircular.style.display = tab === 'circular' ? 'flex' : 'none';
+
+      if (tab === 'pipeline' && (!pipelineSteps || pipelineSteps.length === 0)) {
+        loadSamplePipeline();
+      } else if (tab === 'circular' && circularColumns.length === 0) {
+        loadSampleCircular();
       }
-    }
-
-    // 3. AUTHENTICATION
-    async function checkAuth() {
-      try {
-        const res = await fetch('/api/me');
-        const contentType = res.headers.get('content-type') || '';
-        if (res.ok && contentType.includes('application/json')) {
-          const data = await res.json();
-          if (data.logged_in) {
-            document.getElementById('login-modal').style.display = 'none';
-            document.getElementById('btn-lock').style.display = 'inline-block';
-            return;
-          }
-        }
-      } catch (err) {}
-
-      if (sessionStorage.getItem('tuanpv_authenticated') === 'true') {
-        document.getElementById('login-modal').style.display = 'none';
-        document.getElementById('btn-lock').style.display = 'inline-block';
-      } else {
-        document.getElementById('login-modal').style.display = 'flex';
-        document.getElementById('btn-lock').style.display = 'none';
-      }
-    }
-
-    async function handleLogin(e) {
-      e.preventDefault();
-      const pwd = document.getElementById('access-password').value.trim();
-      const errBox = document.getElementById('login-error');
-      errBox.style.display = 'none';
-
-      try {
-        const res = await fetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: pwd })
-        });
-        const data = await res.json();
-        if (res.ok && data.status === 'ok') {
-          sessionStorage.setItem('tuanpv_authenticated', 'true');
-          document.getElementById('login-modal').style.display = 'none';
-          document.getElementById('btn-lock').style.display = 'inline-block';
-          showToast("Đăng nhập thành công!");
-          return;
-        }
-      } catch (err) {}
-
-      if (pwd === "VualidonMSB") {
-        sessionStorage.setItem('tuanpv_authenticated', 'true');
-        document.getElementById('login-modal').style.display = 'none';
-        document.getElementById('btn-lock').style.display = 'inline-block';
-        showToast("Mở khóa thành công!");
-      } else {
-        errBox.style.display = 'block';
-      }
-    }
-
-    async function handleLogout() {
-      try {
-        await fetch('/api/logout', { method: 'POST' });
-      } catch (err) {}
-      sessionStorage.removeItem('tuanpv_authenticated');
-      document.getElementById('login-modal').style.display = 'flex';
-      document.getElementById('btn-lock').style.display = 'none';
-      const pwdInput = document.getElementById('access-password');
-      if (pwdInput) pwdInput.value = '';
-      showToast("Đã khóa hệ thống");
     }
 
     // ==============================================================
@@ -747,10 +807,11 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
         res = res.replace(/\bdate_parse\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'to_timestamp($1, $2)');
         res = res.replace(/\b(?:format_datetime|date_format)\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_format($1, $2)');
         res = res.replace(/\bnow\s*\(\s*\)/gi, 'current_timestamp()');
+        res = res.replace(/\bdate_add\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*((?:[^()]+|\([^()]*\))+?)\s*\)/gi, 'date_add($2, $1)');
+        res = res.replace(/\bdate_add\s*\(\s*['"]month['"]\s*,\s*([^,]+?)\s*,\s*((?:[^()]+|\([^()]*\))+?)\s*\)/gi, 'add_months($2, $1)');
+        res = res.replace(/\bdate_diff\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*((?:[^()]+|\([^()]*\))+?)\s*\)/gi, 'datediff($2, $1)');
+        res = res.replace(/\bdate_diff\s*\(\s*['"]month['"]\s*,\s*([^,]+?)\s*,\s*((?:[^()]+|\([^()]*\))+?)\s*\)/gi, 'months_between($2, $1)');
         res = res.replace(/\bcurrent_date\b(?!\s*\()/gi, 'current_date()');
-        res = res.replace(/\bdate_add\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_add($2, $1)');
-        res = res.replace(/\bdate_add\s*\(\s*['"]month['"]\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'add_months($2, $1)');
-        res = res.replace(/\bdate_diff\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'datediff($2, $1)');
         res = res.replace(/\bjson_extract_scalar\s*\(/gi, 'get_json_object(');
         res = res.replace(/\bjson_extract\s*\(/gi, 'get_json_object(');
         res = res.replace(/\bstrpos\s*\(/gi, 'instr(');
@@ -794,12 +855,12 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
         res = res.replace(/s3a:\/\//g, 's3://');
 
         // Đồng bộ CAST cho các nhánh CASE WHEN khi giữ nguyên định dạng
-        res = res.replace(/(?is)\bCASE\b.*?\bEND\b/g, (block) => {
-          const branches = [...block.matchAll(/(?i)\b(then|else)\s+([^\s]+)/g)];
+        res = res.replace(/\bCASE\b[\s\S]*?\bEND\b/gi, (block) => {
+          const branches = [...block.matchAll(/\b(then|else)\s+([^\s]+)/gi)];
           const hasStr = branches.some(b => /^['"].*['"]$/.test(b[2].trim()));
           const hasNum = branches.some(b => /^\d+(?:\.\d+)?$/.test(b[2].trim()));
           if (hasStr && hasNum) {
-            return block.replace(/(?i)\b(then|else)\s+(\d+(?:\.\d+)?)/g, '$1 CAST($2 AS VARCHAR)');
+            return block.replace(/\b(then|else)\s+(\d+(?:\.\d+)?)/gi, '$1 CAST($2 AS VARCHAR)');
           }
           return block;
         });
@@ -1604,10 +1665,440 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       setTimeout(() => toast.classList.remove('show'), 2200);
     }
 
+    function escapeHtml(text) {
+      if (!text) return '';
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // ==============================================================
+    // TAB 3: PIPELINE SCRIPT LOGIC (C_PRE_SOURCE_CODE)
+    // ==============================================================
+    let pipelineSteps = [];
+
+    function onPipeTermCodeChange() {
+      const term = document.getElementById('pipe-term-code').value;
+      const rerunInput = document.getElementById('pipe-rerun-term');
+      if (rerunInput) {
+        rerunInput.value = term;
+      }
+    }
+
+    function splitSqlStatements(sqlText) {
+      const statements = [];
+      let current = '';
+      let inSingleQuote = false;
+      let inDoubleQuote = false;
+      let inLineComment = false;
+      let inBlockComment = false;
+
+      for (let i = 0; i < sqlText.length; i++) {
+        const char = sqlText[i];
+        const nextChar = i + 1 < sqlText.length ? sqlText[i + 1] : '';
+
+        if (inLineComment) {
+          current += char;
+          if (char === '\n') inLineComment = false;
+        } else if (inBlockComment) {
+          current += char;
+          if (char === '*' && nextChar === '/') {
+            current += '/';
+            i++;
+            inBlockComment = false;
+          }
+        } else if (inSingleQuote) {
+          current += char;
+          if (char === "'" && nextChar === "'") {
+            current += nextChar;
+            i++;
+          } else if (char === "'") {
+            inSingleQuote = false;
+          }
+        } else if (inDoubleQuote) {
+          current += char;
+          if (char === '"' && nextChar === '"') {
+            current += nextChar;
+            i++;
+          } else if (char === '"') {
+            inDoubleQuote = false;
+          }
+        } else {
+          if (char === '-' && nextChar === '-') {
+            inLineComment = true;
+            current += '--';
+            i++;
+          } else if (char === '/' && nextChar === '*') {
+            inBlockComment = true;
+            current += '/*';
+            i++;
+          } else if (char === "'") {
+            inSingleQuote = true;
+            current += char;
+          } else if (char === '"') {
+            inDoubleQuote = true;
+            current += char;
+          } else if (char === ';') {
+            if (current.trim()) {
+              statements.push(current.trim());
+            }
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+      }
+      if (current.trim()) {
+        statements.push(current.trim());
+      }
+      return statements;
+    }
+
+    function parseAndConvertPipelineScript() {
+      const rawInput = document.getElementById('pipe-sql-input').value.trim();
+      if (!rawInput) {
+        alert("Vui lòng dán nội dung các câu lệnh Presto SQL vào khung nhập liệu!");
+        return;
+      }
+
+      const reportCode = document.getElementById('pipe-report-code').value.trim() || 'REPORT';
+      const orderStart = parseInt(document.getElementById('pipe-order-start').value, 10) || 1;
+      const orderStep = parseInt(document.getElementById('pipe-order-step').value, 10) || 1;
+      const prestoDialect = typeof getPrestoDialect === 'function' ? getPrestoDialect() : 'presto';
+
+      const rawStatements = splitSqlStatements(rawInput);
+      if (rawStatements.length === 0) {
+        alert("Không tìm thấy câu lệnh SQL hợp lệ!");
+        return;
+      }
+
+      pipelineSteps = [];
+      let currentOrder = orderStart;
+
+      rawStatements.forEach((stmtBlock) => {
+        const lines = stmtBlock.split(/\r?\n/);
+        const commentLines = [];
+        const codeLines = [];
+
+        lines.forEach(l => {
+          const trimmed = l.trim();
+          if (trimmed.startsWith('--') || trimmed.startsWith('/*')) {
+            commentLines.push(trimmed);
+          } else {
+            codeLines.push(l);
+          }
+        });
+
+        // 1. Trích xuất mô tả bước
+        let desc = '';
+        if (commentLines.length > 0) {
+          const firstComment = commentLines[0]
+            .replace(/^(?:--|\/\*|\*\/)\s*/, '')
+            .replace(/^\[[^\]]+\]:?\s*/, '')
+            .replace(/^(?:bước\s*\d+|step\s*\d+):?\s*/i, '')
+            .trim();
+          desc = firstComment;
+        }
+
+        const sqlPure = codeLines.join('\n').trim();
+        if (!sqlPure) return;
+
+        // 2. Nhận diện hành động (action)
+        let action = 'EXECUTE';
+        const actionMatch = sqlPure.match(/^\s*(INSERT\s+INTO|INSERT\s+OVERWRITE|DELETE\s+FROM|DELETE|TRUNCATE\s+TABLE|TRUNCATE|MERGE\s+INTO|CREATE\s+TABLE|CREATE|UPDATE|SELECT)\b/i);
+        if (actionMatch) {
+          const act = actionMatch[1].toUpperCase();
+          if (act.includes('INSERT')) action = 'INSERT';
+          else if (act.includes('DELETE')) action = 'DELETE';
+          else if (act.includes('TRUNCATE')) action = 'TRUNCATE';
+          else if (act.includes('MERGE')) action = 'MERGE';
+          else if (act.includes('CREATE')) action = 'CREATE';
+          else if (act.includes('UPDATE')) action = 'UPDATE';
+          else if (act.includes('SELECT')) action = 'SELECT';
+        }
+
+        // 3. Nhận diện bảng tác động (table_name)
+        let tableName = '';
+        const tableMatch = sqlPure.match(/(?:INSERT\s+(?:INTO|OVERWRITE)|DELETE\s+FROM|TRUNCATE\s+TABLE|UPDATE|MERGE\s+INTO|CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?)\s+([a-zA-Z0-9_.]+)/i);
+        if (tableMatch) {
+          tableName = tableMatch[1].trim();
+        } else {
+          tableName = reportCode.toLowerCase();
+        }
+
+        if (!desc) {
+          desc = `${action} dữ liệu bảng ${tableName}`;
+        }
+
+        // 4. Chuyển đổi sang Spark SQL bằng Regex Transpiler
+        const { protectedSql, varsList } = protectVariables(stmtBlock);
+        let convertedSpark = regexConvert(protectedSql, 'presto2spark', prestoDialect);
+        convertedSpark = restoreVariables(convertedSpark, varsList);
+
+        pipelineSteps.push({
+          order_id: currentOrder,
+          action: action,
+          table_name: tableName,
+          description_sql_code: desc,
+          sql_code: convertedSpark
+        });
+
+        currentOrder += orderStep;
+      });
+
+      renderPipelineSteps();
+      document.getElementById('pipe-parse-status').innerText = `✅ Đã phân tích thành công ${pipelineSteps.length} bước!`;
+      showToast(`Đã phân tích & convert ${pipelineSteps.length} bước sang Spark SQL!`);
+    }
+
+    function renderPipelineSteps() {
+      const tbody = document.getElementById('pipe-steps-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      if (pipelineSteps.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #94A3B8; padding: 20px;">Chưa có bước nào. Nhấn "⚡ Phân Tích &amp; Convert sang Spark" hoặc "➕ Thêm Bước".</td></tr>`;
+        return;
+      }
+
+      const actionOptions = ['DELETE', 'INSERT', 'TRUNCATE', 'MERGE', 'CREATE', 'UPDATE', 'EXECUTE'];
+
+      pipelineSteps.forEach((step, idx) => {
+        const tr = document.createElement('tr');
+        
+        let actionSelectHtml = `<select class="table-select" onchange="updatePipeStep(${idx}, 'action', this.value)">`;
+        actionOptions.forEach(opt => {
+          actionSelectHtml += `<option value="${opt}" ${step.action === opt ? 'selected' : ''}>${opt}</option>`;
+        });
+        actionSelectHtml += `</select>`;
+
+        tr.innerHTML = `
+          <td style="text-align: center;">
+            <input type="number" class="table-input" value="${step.order_id}" onchange="updatePipeStep(${idx}, 'order_id', this.value)" style="text-align: center; font-weight: 700; width: 60px;" />
+          </td>
+          <td>${actionSelectHtml}</td>
+          <td>
+            <input type="text" class="table-input" value="${escapeHtml(step.table_name)}" onchange="updatePipeStep(${idx}, 'table_name', this.value)" style="font-family: monospace; font-size: 11px;" />
+          </td>
+          <td>
+            <input type="text" class="table-input" value="${escapeHtml(step.description_sql_code)}" onchange="updatePipeStep(${idx}, 'description_sql_code', this.value)" />
+          </td>
+          <td>
+            <textarea class="table-input" style="font-family: monospace; font-size: 11px; height: 52px; resize: vertical; line-height: 1.4;" onchange="updatePipeStep(${idx}, 'sql_code', this.value)">${escapeHtml(step.sql_code)}</textarea>
+          </td>
+          <td style="text-align: center;">
+            <button class="btn-row-del" onclick="removePipeStep(${idx})" title="Xóa bước này">✕</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function updatePipeStep(index, field, value) {
+      if (index >= 0 && index < pipelineSteps.length) {
+        if (field === 'order_id') {
+          pipelineSteps[index][field] = parseInt(value, 10) || 0;
+        } else {
+          pipelineSteps[index][field] = value;
+        }
+      }
+    }
+
+    function addManualPipelineStep() {
+      const reportCode = document.getElementById('pipe-report-code').value.trim() || 'REPORT';
+      const orderStep = parseInt(document.getElementById('pipe-order-step').value, 10) || 1;
+      
+      let nextOrder = 1;
+      if (pipelineSteps.length > 0) {
+        const lastOrder = pipelineSteps[pipelineSteps.length - 1].order_id;
+        nextOrder = lastOrder + orderStep;
+      }
+
+      pipelineSteps.push({
+        order_id: nextOrder,
+        action: 'INSERT',
+        table_name: reportCode.toLowerCase(),
+        description_sql_code: `Thực hiện bước ${pipelineSteps.length + 1}`,
+        sql_code: `-- Nhập câu lệnh Spark SQL tại đây...`
+      });
+
+      renderPipelineSteps();
+      showToast("Đã thêm 1 bước mới vào bảng!");
+    }
+
+    function removePipeStep(index) {
+      if (index >= 0 && index < pipelineSteps.length) {
+        pipelineSteps.splice(index, 1);
+        renderPipelineSteps();
+        showToast("Đã xóa bước thực thi!");
+      }
+    }
+
+    function generatePipelineSQL() {
+      if (pipelineSteps.length === 0) {
+        parseAndConvertPipelineScript();
+      }
+      if (pipelineSteps.length === 0) {
+        alert("Vui lòng nhập script Presto và nhấn 'Phân Tích' trước khi sinh câu lệnh!");
+        return;
+      }
+
+      const grpJob = document.getElementById('pipe-grp-job').value.trim() || 'C_PRE_STAT';
+      const reportCode = document.getElementById('pipe-report-code').value.trim() || 'c_pre_sao_ke_lending';
+      const termCode = document.getElementById('pipe-term-code').value.trim() || 'D';
+      const rerunTerm = document.getElementById('pipe-rerun-term').value.trim() || 'TRUOC_CIC';
+      const isUsed = document.getElementById('pipe-is-used').value.trim() || '1';
+      const genDelete = document.getElementById('pipe-gen-delete').checked;
+
+      let sql = `-- =========================================================================================\n`;
+      sql += `-- SCRIPT TỰ ĐỘNG SINH: TOOL GENT DATA FLOW C_PRE_SOURCE_CODE CIRCULAR - TUANPV\n`;
+      sql += `-- BẢNG CẤU HÌNH: prod_gold_ssd.sbv_report.c_pre_source_code\n`;
+      sql += `-- MÃ BÁO CÁO: ${reportCode} | GROUP: ${grpJob} | KỲ HẠN: ${termCode} | KỲ CHẠY LẠI: ${rerunTerm}\n`;
+      sql += `-- SỐ LƯỢNG BƯỚC THỰC THI: ${pipelineSteps.length} | ENGINE: SPARK SQL\n`;
+      sql += `-- THỜI GIAN SINH: ${new Date().toLocaleString('vi-VN')}\n`;
+      sql += `-- =========================================================================================\n\n`;
+
+      if (genDelete) {
+        const orderIds = pipelineSteps.map(s => s.order_id);
+        sql += `-- 1. XÓA CẤU HÌNH CŨ CỦA BÁO CÁO THEO KEY (sbv_group_item_code_org VÀ order_id)\n`;
+        if (orderIds.length === 1) {
+          sql += `DELETE FROM prod_gold_ssd.sbv_report.c_pre_source_code \n`;
+          sql += `WHERE sbv_group_item_code_org = '${escapeSqlStr(reportCode)}'\n`;
+          sql += `  AND order_id = ${orderIds[0]};\n\n`;
+        } else if (orderIds.length > 1) {
+          sql += `DELETE FROM prod_gold_ssd.sbv_report.c_pre_source_code \n`;
+          sql += `WHERE sbv_group_item_code_org = '${escapeSqlStr(reportCode)}'\n`;
+          sql += `  AND order_id IN (${orderIds.join(', ')});\n\n`;
+        } else {
+          sql += `DELETE FROM prod_gold_ssd.sbv_report.c_pre_source_code \n`;
+          sql += `WHERE sbv_group_item_code_org = '${escapeSqlStr(reportCode)}';\n\n`;
+        }
+      }
+
+      sql += `-- 2. NẠP CẤU HÌNH CÁC BƯỚC THỰC THI (ĐÃ CHUYỂN ĐỔI SANG SPARK SQL)\n`;
+      sql += `INSERT INTO prod_gold_ssd.sbv_report.c_pre_source_code (\n`;
+      sql += `    table_name,\n`;
+      sql += `    "action",\n`;
+      sql += `    grp_job,\n`;
+      sql += `    sbv_group_item_code_org,\n`;
+      sql += `    sql_code,\n`;
+      sql += `    description_sql_code,\n`;
+      sql += `    term_code,\n`;
+      sql += `    order_id,\n`;
+      sql += `    rerun_term,\n`;
+      sql += `    is_used\n`;
+      sql += `) VALUES \n`;
+
+      pipelineSteps.forEach((step, idx) => {
+        const isLast = idx === pipelineSteps.length - 1;
+        sql += `(\n`;
+        sql += `    '${escapeSqlStr(step.table_name)}',\n`;
+        sql += `    '${escapeSqlStr(step.action)}',\n`;
+        sql += `    '${escapeSqlStr(grpJob)}',\n`;
+        sql += `    '${escapeSqlStr(reportCode)}',\n`;
+        sql += `    '${escapeSqlStr(step.sql_code)}',\n`;
+        sql += `    '${escapeSqlStr(step.description_sql_code)}',\n`;
+        sql += `    '${escapeSqlStr(termCode)}',\n`;
+        sql += `    ${step.order_id},\n`;
+        sql += `    '${escapeSqlStr(rerunTerm)}',\n`;
+        sql += `    ${isUsed}\n`;
+        sql += `)${isLast ? ';\n\n' : ',\n'}`;
+      });
+
+      sql += `COMMIT;\n`;
+      sql += `-- ======================= HOÀN TẤT SINH CẤU HÌNH CHO ${reportCode} =======================\n`;
+
+      document.getElementById('pipe-sql-output').value = sql;
+      showToast(`Đã sinh thành công script cấu hình ${pipelineSteps.length} bước cho ${reportCode}!`);
+    }
+
+    function loadSamplePipeline() {
+      document.getElementById('pipe-grp-job').value = 'C_PRE_STAT';
+      document.getElementById('pipe-report-code').value = 'c_pre_sao_ke_lending';
+      document.getElementById('pipe-term-code').value = 'D';
+      document.getElementById('pipe-rerun-term').value = 'TRUOC_CIC';
+      document.getElementById('pipe-is-used').value = '1';
+      document.getElementById('pipe-order-start').value = '1';
+      document.getElementById('pipe-order-step').value = '1';
+
+      const samplePrestoScript = `-- [BƯỚC 1]: Xóa dữ liệu kỳ báo cáo cũ trong bảng c_pre_sao_ke_lending
+DELETE FROM c_pre_sao_ke_lending 
+WHERE data_date = '{{process_date}}';
+
+-- [BƯỚC 2]: Trích xuất và phân loại tiền gửi theo kỳ hạn từ ODS
+INSERT INTO c_pre_sao_ke_lending
+SELECT 
+    cust_id,
+    account_no,
+    months_between(date_parse(maturity_date, '%Y-%m-%d'), date_parse(open_date, '%Y-%m-%d')) as term_months,
+    CASE 
+        WHEN balance >= 1000000000 THEN 'VIP'
+        ELSE 'MASS'
+    END as cust_segment,
+    nvl(deposit_rate, 0.0) as interest_rate,
+    current_timestamp() as etl_time
+FROM ods.ods_deposit_accounts
+WHERE partition_date = '{{process_date}}';
+
+-- [BƯỚC 3]: Tổng hợp số dư theo chi nhánh
+INSERT INTO c_pre_sao_ke_lending
+SELECT 
+    'c_pre_sao_ke_lending' as org_item_code,
+    branch_id,
+    sum(balance) as total_amount,
+    '{{process_date}}' as report_date
+FROM ods.ods_deposit_accounts
+GROUP BY branch_id;`;
+
+      document.getElementById('pipe-sql-input').value = samplePrestoScript;
+      parseAndConvertPipelineScript();
+      generatePipelineSQL();
+    }
+
+    function clearPipelineForm() {
+      document.getElementById('pipe-sql-input').value = '';
+      document.getElementById('pipe-sql-output').value = '';
+      pipelineSteps = [];
+      renderPipelineSteps();
+      document.getElementById('pipe-parse-status').innerText = '';
+      showToast("Đã xóa trắng form cấu hình luồng!");
+    }
+
+    function copyPipelineSQL() {
+      const out = document.getElementById('pipe-sql-output').value;
+      if (!out) {
+        alert("Chưa có nội dung SQL để sao chép. Vui lòng nhấn 'Sinh Câu Lệnh INSERT' trước!");
+        return;
+      }
+      navigator.clipboard.writeText(out);
+      showToast("Đã sao chép SQL cấu hình luồng vào Clipboard!");
+    }
+
+    function downloadPipelineSQL() {
+      const out = document.getElementById('pipe-sql-output').value;
+      if (!out) {
+        alert("Chưa có nội dung SQL để tải về. Vui lòng nhấn 'Sinh Câu Lệnh INSERT' trước!");
+        return;
+      }
+      const code = document.getElementById('pipe-report-code').value.trim() || 'PIPELINE';
+      const filename = `CONFIG_PIPELINE_${code}_${Date.now()}.sql`;
+      const blob = new Blob([out], { type: 'text/sql;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+      showToast(`Đã tải file: ${filename}`);
+    }
+
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 'Enter') {
         if (currentActiveTab === 'transpiler') {
           convertSQL();
+        } else if (currentActiveTab === 'pipeline') {
+          generatePipelineSQL();
         } else {
           generateCircularSQL();
         }
@@ -1616,7 +2107,6 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
 
     window.onload = () => {
       updateUI();
-      checkAuth();
       initPyodideEngine();
     };
   </script>

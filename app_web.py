@@ -657,13 +657,7 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json(200, {"status": "ok"}, delete_cookie=True)
             return
 
-        # 3. Yêu cầu đăng nhập cho các API bên dưới
-        user = self.get_authenticated_user()
-        if not user:
-            self.send_json(401, {"status": "error", "error": "Yêu cầu đăng nhập để sử dụng tính năng này"})
-            return
-
-        # 4. API Chuyển đổi SQL
+        # 3. API Chuyển đổi SQL (Cho phép truy cập trực tiếp không cần mật khẩu)
         if self.path == "/api/convert":
             query = req_data.get("query", "")
             mode = req_data.get("mode", "presto2spark")
@@ -674,6 +668,12 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json(200, {"status": "ok", "result": converted})
             except Exception as e:
                 self.send_json(400, {"status": "error", "error": str(e)})
+            return
+
+        # 4. Yêu cầu đăng nhập cho các API quản trị tài khoản
+        user = self.get_authenticated_user()
+        if not user:
+            self.send_json(401, {"status": "error", "error": "Yêu cầu đăng nhập để sử dụng tính năng này"})
             return
 
         # 5. API Đổi mật khẩu

@@ -1,0 +1,50 @@
+Để tôi mã tả kỹ lại luồng nhé, tôi chỉ cần bạn sinh ra câu lệnh insert để tôi đẩy vào engine sẵn có để map lên báo cáo. 
+Tôi cần bạn hỗ trợ sinh ra 3 câu SQL đẩy vào 3 bảng: 
+C_GROUP_ITEM (chứa thông tin chung) có các column và ý nghĩa như sau: 
+- item_code_org: ko quan trọng 
+- group_item_code: mã báo cáo (C00384)
+- sbv_group_item_code: tên sheet báo cáo (thường sẽ là mã báo cáo nối với số sheet. ví dụ C003841)
+- sbv_group_item_code_org: mã báo cáo (giống group_item_code)
+- group_item_name: tên của báo cáo 
+- term_code: kỳ hạn báo cáo (D,M,..) cái này khi input thì yêu cầu user nhập để biết
+- term_name: ý nghĩa của term_code (không quan trọng)
+- is_rerun: cho input để tôi nhập
+
+C_ITEM_ORG (chứa thông tin cấu hình cho từng cột) Có các column sau:
+- org_item_code: mã của cột fill dữ liệu , có quy tắc đặt như sau: Mã báo cáo _ column ví dụ (C00384_D)  (quan trọng vì để join với bảng c_source_code để lấy câu SQL cho engine)
+- group_item_code: mã báo cáo (ví dụ C00384) - có quan trọng vì dùng để join
+- sbv_org_item_code: tên sheet báo cáo (thường sẽ là mã báo cáo nối với số sheet. ví dụ C003841)
+- symbol: để null
+- item_type: mặc định là DR
+- item_name: tên cột lấy từ template báo cáo
+- item_level: null
+- col_location: vị trí cột của chỉ tiêu từ template
+- row_location: vị trí dòng bắt đầu của chỉ tiêu từ template (ghi chú: - 1 giá trị, ví dụ dòng 20 thì điền 19)
+- term_code: null
+- sbv_term_code: null
+- general_report: null
+- branch_report: tạm thời fix =0, khi nào cần sửa thì input như nào tôi sẽ yêu cầu sau
+- data_type: phần này sẽ dựa vào bảng kết quả tính toán của tôi (thiết kế cho tôi phần khai báo)
+- unit: làm tròn đến giá trị nào (nếu là kiểu number, double, .. nói chung là kiểu số thì sẽ làm tròn đến hàng triệu đồng thì điền 1000000)
+- unit_code: để null
+- decimal_position: để null (sau cần sửa thì tôi báo)
+- date_modify: sysdate
+- user_modify: cho tôi input để nhập cái này nhé
+- item_type_1: mặc định 'FORM'
+- group_code: để null 
+
+C_SOURCE_CODE (bảng chứa thông tin source_code của tôi) 
+- org_item_code: trùng với mã ở c_item_org (tôi đã mô tả rule)
+- use_procedure: để null
+- sql_code: phần này tôi cần bạn thiết kế theo mô tả giúp tôi
+câu sql config trong cột này sẽ cần trả ra giá trị 3 trường: ORG_ITEM_CODE (trùng với mã org_item_code), ITEM_VALUE: giá trị để đổ ra cột trong template, 
+branch_id (nếu báo cáo nhiều chi nhánh thì sẽ lấy cột branch_id trong bảng kết quả, còn nếu chỉ báo cáo kết quả tổng thì để mặc định VN0010001)
+ví dụ: SELECT 'B00304_E' AS ORG_ITEM_CODE ,KY_HAN AS  ITEM_VALUE, 'VN0010001' AS BRANCH_ID, ORDER_ID 
+FROM {{silver}}.{{silver_schema}}.c_pre_mbnt_cv2401 A  
+WHERE A.TRANS_TYPE = 'BUY'
+and a.import_date = {{process_date}}
+Câu sql này bạn thiết kế cho tôi nhập 
+ +) tên bảng kết quả 
+ +) tên column của bảng đó tương ứng với mã ORG_ITEM_CODE nào để điền vào ITEM_VALUE, 
+ +) nhiều hay ít file để điền mã branch_id mô tả ở trên
+ +) câu sql có điều kiện gì 
