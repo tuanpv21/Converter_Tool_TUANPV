@@ -1,5 +1,5 @@
----
-title: Presto Spark SQL Transpiler
+﻿---
+title: Presto Spark SQL Transpiler & Data Flow Automation
 emoji: ⚡
 colorFrom: blue
 colorTo: indigo
@@ -7,45 +7,55 @@ sdk: static
 pinned: false
 ---
 
-# ⚡ TOOL CHUYỂN ĐỔI CÚ PHÁP SQL 2 CHIỀU: PRESTO ⇄ SPARK SQL
-### Hỗ trợ Truy vấn Dữ liệu S3 Data Lake (Presto / Trino / Athena ⇄ Apache Spark SQL)
+# ⚡ SQL TRANSPILER & DATA PIPELINE AUTOMATION TOOLKIT
+### Hỗ trợ Truy vấn S3 Data Lake (Presto / Trino ⇄ Apache Spark SQL) & Tự động hóa Luồng Dữ liệu Báo cáo
 
 ---
 
-## 1. Giới thiệu & Tính năng cốt lõi
+## 1. Giới thiệu Tổng quan
 
-Công cụ chuyên dụng giải quyết bài toán chuyển đổi mã nguồn SQL giữa hai engine phổ biến nhất trên S3 Data Lake: **Presto / Trino** và **Apache Spark SQL**.
-
-- **Chuyển đổi 2 chiều (Bi-directional):** `Presto ➔ Spark SQL` và `Spark SQL ➔ Presto`.
-- **Tùy chọn Phiên bản Presto / Trino:** Hỗ trợ linh hoạt các dialect:
-  - `PrestoDB (0.2xx)` (AWS EMR Presto, Athena v2, Presto Foundation).
-  - `Trino (PrestoSQL 330+ / Trino 400+)` (Trino Software Foundation, Athena v3).
-  - `AWS Athena Engine` (AWS Athena SQL dialect).
-- **Bảo toàn Biến tham số (Parameter Preservation):**
-  - Tự động bảo vệ nguyên vẹn 100% các biến Jinja/Airflow (`{{process_date}}`, `{{ ds }}`, `{{ params.x }}`) và Shell/Spark (`${VAR}`, `${hiveconf:...}`) khi chuyển đổi, không bị parser SQL làm biến dạng thành struct/row.
-- **Engine phân tích cú pháp AST:** Sử dụng thư viện `sqlglot` để phân tích cây cú pháp trừu tượng, chuyển đổi chính xác các cấu trúc phức tạp (CTE, Subqueries, Joins, Window functions, Unnest/Explode).
-- **Quy tắc S3 Data Lake chuyên sâu:**
-  - Chuyển đổi hàm đọc JSON (`json_extract_scalar` ⇄ `get_json_object`).
-  - Chuyển đổi định dạng ngày giờ (`date_parse`, `date_add`, `date_diff` ⇄ `to_date`, `datediff`).
-  - Xử lý mảng và tập hợp (`cardinality`, `contains`, `array_join` ⇄ `size`, `array_contains`, `concat_ws`).
-  - Chuẩn hóa kiểu dữ liệu (`VARCHAR` ⇄ `STRING`, `VARBINARY` ⇄ `BINARY`).
-- **Bảo mật & Phân quyền (Authentication Server-side):**
-  - Xác thực đăng nhập 100% tại máy chủ backend Python (không để lộ mật khẩu hay logic ở HTML).
-  - Quản lý tài khoản bằng **SQLite (`auth.db`)** kết hợp mật khẩu băm SHA-256 + Salt.
-  - Hỗ trợ biến môi trường (`ADMIN_USERNAME`, `ADMIN_PASSWORD`) giúp chạy container Docker an toàn.
-  - Session Cookie HttpOnly 7 ngày (tự động nhớ phiên đăng nhập, chống XSS).
-- **Giao diện đa dạng:** Hỗ trợ cả **Desktop App (Tkinter)**, **Web Browser (Dark Mode Split Editor)** và **Command Line (CLI)**.
+Bộ công cụ chuyên dụng cho Kỹ sư Dữ liệu (Data Engineers) và Chuyên viên Báo cáo Dữ liệu (BI/DWH/Data Analyst) trong môi trường Big Data & Ngân hàng:
+1. **Chuyển đổi cú pháp SQL 2 chiều:** Presto / Trino / Athena ⇄ Apache Spark SQL với độ chính xác cao nhờ AST Parser (`sqlglot`) và Regex Transpiler.
+2. **Tool Gent Data Flow `c_pre_source_code` circular:** Tự động phân tích script Presto nhiều bước (`DELETE`, `INSERT`...), tự động convert hàm sang Spark SQL và sinh toàn bộ câu lệnh cấu hình nạp vào bảng điều phối luồng `prod_gold_ssd.sbv_report.c_pre_source_code`.
+3. **Tool Cấu hình Báo cáo Thông tư 35 (5 Bảng):** Tự động sinh trọn bộ script SQL (`C_REPORT_ORDER_DETAIL`, `C_ORG_ITEM_ORDER`, `C_ITEM_LOCATION`, `C_FORM_DESIGN_INFO`, `C_SOURCE_CODE`) theo metadata và danh sách cột báo cáo.
 
 ---
 
-## 2. Thông tin Tài khoản Mặc định
+## 2. Các Tính năng Cốt lõi
 
-| Thông tin | Giá trị Mặc định | Ghi chú |
-| :--- | :--- | :--- |
-| **Username** | `admin` | Tùy biến qua biến môi trường `ADMIN_USERNAME` |
-| **Password** | `Tuanpv@2026` | Tùy biến qua biến môi trường `ADMIN_PASSWORD` hoặc đổi trong Web |
+### 2.1. ⚡ Chuyển đổi SQL 2 chiều (Presto ⇄ Spark SQL)
+- **Hỗ trợ đa dạng Dialect:**
+  - `PrestoDB (0.2xx)` (EMR Presto, Athena v2, Presto Foundation).
+  - `Trino / PrestoSQL (330+ / 400+)` (Athena v3).
+  - `AWS Athena Engine`.
+- **Bảo toàn 100% Biến tham số (Parameter Preservation):**
+  - Giữ nguyên vẹn các biến Jinja/Airflow (`{{process_date}}`, `{{ ds }}`, `{{ params.x }}`) và Shell/Spark (`${VAR}`, `${hiveconf:...}`) không bị parser làm sai lệch.
+- **Quy tắc chuyển đổi Big Data chuyên sâu:**
+  - JSON function: `json_extract_scalar` ⇄ `get_json_object`.
+  - Date/Time: `date_parse`, `date_add`, `date_diff` ⇄ `to_date`, `date_add`, `datediff`.
+  - Array/Collection: `cardinality`, `contains`, `array_join` ⇄ `size`, `array_contains`, `concat_ws`.
+  - Kiểu dữ liệu: `VARCHAR` ⇄ `STRING`, `VARBINARY` ⇄ `BINARY`.
 
-> Sau khi đăng nhập, bạn có thể bấm nút **`🔑 Đổi MK`** ở góc trên bên phải để đổi sang mật khẩu cá nhân.
+### 2.2. 🔄 Tool Gent Data Flow `c_pre_source_code` Circular
+- **Phân tách script tự động:** Nhận diện từng bước câu lệnh SQL từ script Presto nhiều bước (phân tách bởi dấu `;` hoặc comment tag).
+- **Trích xuất thông minh:**
+  - **Mô tả bước (`description_sql_code`):** Tự động lấy từ comment tag phía trên câu lệnh (vd: `-- [BƯỚC 1]: Xóa dữ liệu kỳ cũ`).
+  - **Hành động (`action`):** Tự động nhận diện `DELETE`, `INSERT`, `TRUNCATE`, `UPDATE`, `MERGE`...
+  - **Bảng tác động (`table_name`):** Tự động bóc tách tên bảng thuần từ SQL (`INSERT INTO table`, `DELETE FROM table`).
+  - **Convert Spark SQL (`sql_code`):** Tự động chuyển đổi các hàm Presto sang cú pháp Spark SQL để Workflow Engine thực thi.
+- **Tự động sinh lệnh DELETE an toàn theo Key:**
+  - Tự động sinh câu lệnh DELETE cấu hình cũ theo đúng cặp khóa: `sbv_group_item_code_org` và `order_id` (tránh xóa nhầm các bước khác).
+- **Lưới quản lý tương tác (Interactive Grid):** Cho phép chỉnh sửa trực tiếp, thêm bước thủ công, xóa bước, copy hoặc tải file `.sql`.
+
+### 2.3. 📋 Tool Sinh Cấu hình Báo cáo Thông tư 35 (5 Bảng)
+- Cấu hình Metadata báo cáo: Group Code, Tên bảng dữ liệu, Chu kỳ, Loại tiền, Trạng thái...
+- Nhập danh sách cột linh hoạt (tự động điền nhanh 10, 20, 30 cột).
+- Sinh trọn bộ câu lệnh `INSERT INTO` 5 bảng cấu hình Metadata lõi:
+  1. `C_REPORT_ORDER_DETAIL`
+  2. `C_ORG_ITEM_ORDER`
+  3. `C_ITEM_LOCATION`
+  4. `C_FORM_DESIGN_INFO`
+  5. `C_SOURCE_CODE`
 
 ---
 
@@ -53,147 +63,67 @@ Công cụ chuyên dụng giải quyết bài toán chuyển đổi mã nguồn 
 
 ```text
 Converter_Tool/
-├── convert_presto_to_spark.py    # Core Engine xử lý chuyển đổi SQL (CLI & AST)
-├── app_gui.py                    # Giao diện ứng dụng máy tính (Desktop App)
-├── app_web.py                    # Giao diện Web Server (Tích hợp Auth & SQLite)
+├── convert_presto_to_spark.py    # Core Engine xử lý chuyển đổi SQL (CLI & AST & Regex)
+├── app_gui.py                    # Giao diện ứng dụng máy tính (Tkinter Desktop App)
+├── app_web.py                    # Web Server Python tích hợp SQLite Auth
+├── index.html                    # Giao diện người dùng Web (Đầy đủ 3 Module)
 ├── Chay_Tool_Desktop.bat         # 1-Click mở Desktop App
 ├── Chay_Tool_Web.bat             # 1-Click mở Web App trên trình duyệt
-├── Dockerfile                    # File đóng gói container chuẩn bảo mật
-├── docker-compose.yml            # File chạy đa container với 1 lệnh
+├── Dockerfile                    # File build Docker container
+├── docker-compose.yml            # File chạy container với Docker Compose
 ├── requirements.txt              # Thư viện phụ thuộc (sqlglot)
 ├── auth.db                       # Cơ sở dữ liệu SQLite quản lý Users & Sessions
-└── README.md                     # Tài liệu hướng dẫn sử dụng & triển khai
+├── README.md                     # Tài liệu giới thiệu & triển khai
+└── HUONG_DAN_SU_DUNG.md          # Tài liệu hướng dẫn sử dụng chi tiết từng bước
 ```
 
 ---
 
-## 4. Hướng dẫn sử dụng Cục bộ (Local)
+## 4. Hướng dẫn Khởi động Nhanh
 
-### 4.1. Khởi động 1-Click
-- **Giao diện Desktop:** Nhấp đúp chuột vào file `Chay_Tool_Desktop.bat`.
-- **Giao diện Web:** Nhấp đúp chuột vào file `Chay_Tool_Web.bat` (tự động mở trình duyệt tại `http://localhost:7860`).
+### 4.1. Khởi động 1-Click trên Windows
+- **Chạy Web App:** Nhấp đúp chuột vào file `Chay_Tool_Web.bat` (tự động chạy server và mở trình duyệt tại `http://localhost:7860`).
+- **Chạy Desktop App:** Nhấp đúp chuột vào file `Chay_Tool_Desktop.bat`.
 
-### 4.2. Sử dụng từ Dòng lệnh (CLI)
+### 4.2. Khởi động bằng Lệnh Python
 ```bash
-# Presto -> Spark
-python convert_presto_to_spark.py -m presto2spark -f input.sql -o output.sql
-
-# Spark -> Presto
-python convert_presto_to_spark.py -m spark2presto -f input.sql -o output.sql
-
-# Chuyển đổi hàng loạt toàn bộ thư mục
-python convert_presto_to_spark.py -m presto2spark -d ./presto_queries/ -o ./spark_queries/
+cd "Converter_Tool"
+pip install -r requirements.txt
+python app_web.py
 ```
+Truy cập trình duyệt: `http://localhost:7860`
 
 ---
 
-## 5. Hướng dẫn Triển khai bằng Docker & Dockerfile
+## 5. Triển khai Docker & Hugging Face Spaces
 
-File `Dockerfile` đã được tối ưu hóa theo tiêu chuẩn bảo mật doanh nghiệp:
-- Base image: `python:3.10-slim` gọn nhẹ (chỉ khoảng ~150MB).
-- Tạo user non-root `user` (UID 1000) chống leo thang đặc quyền container.
-- Cổng mặc định: `7860`.
-
-### 5.1. Build Docker Image
-Mở terminal tại thư mục `Converter_Tool` và chạy lệnh:
+### 5.1. Triển khai lên Hugging Face Spaces
+Dự án hỗ trợ chạy trực tiếp trên Hugging Face Spaces:
 ```bash
-docker build -t sql-transpiler:latest .
+# Thêm remote HF (nếu chưa có)
+git remote add hf https://huggingface.co/spaces/Tuanpv21/presto-spark-converter
+
+# Push lên Hugging Face
+git add .
+git commit -m "deploy: update web tools and documentation"
+git push hf main
 ```
 
-### 5.2. Chạy Container (3 Cách)
-
-#### Cách 1: Chạy cơ bản (Nhanh nhất)
+### 5.2. Chạy với Docker / Docker Compose
 ```bash
-docker run -d \
-  -p 7860:7860 \
-  --name sql-app \
-  sql-transpiler:latest
-```
-*Mở trình duyệt truy cập: `http://localhost:7860` (hoặc `http://<IP-server>:7860` nếu chạy trên máy chủ nội bộ).*
-
-#### Cách 2: Chạy kèm biến môi trường bảo mật & Persistent Volume (Khuyên dùng)
-Gắn Volume để lưu file SQLite `auth.db` lâu dài (không bị mất khi restart container) và đặt mật khẩu Admin tùy ý:
-```bash
-docker run -d \
-  -p 7860:7860 \
-  --name sql-app \
-  --restart always \
-  -e ADMIN_USERNAME=tuanpv \
-  -e ADMIN_PASSWORD=MatKhauBaoMatCuaBan@123 \
-  -v sql_data:/home/user/app \
-  sql-transpiler:latest
-```
-
-#### Cách 3: Chạy bằng Docker Compose (1-Click)
-Trong thư mục đã có sẵn file `docker-compose.yml`. Bạn chỉ cần gõ:
-```bash
+# Build và chạy với Docker Compose
 docker compose up -d
-```
-Để dừng container:
-```bash
-docker compose down
-```
 
----
-
-## 6. Bảng Tra cứu Biến Môi trường (Environment Variables)
-
-Khi chạy Docker, bạn có thể truyền các biến môi trường qua cờ `-e` hoặc trong file `docker-compose.yml`:
-
-| Biến Môi Trường | Mặc định | Mô tả |
-| :--- | :--- | :--- |
-| `PORT` | `7860` | Cổng dịch vụ web lắng nghe bên trong container |
-| `ADMIN_USERNAME` | `admin` | Tên đăng nhập mặc định cho quyền quản trị |
-| `ADMIN_PASSWORD` | `Tuanpv@2026` | Mật khẩu ban đầu để đăng nhập vào hệ thống |
-
----
-
-## 7. Các Lệnh Quản trị Docker Thường dùng
-
-```bash
-# Xem log container đang chạy (theo dõi truy cập và debug)
-docker logs -f sql-app
-
-# Kiểm tra trạng thái tài nguyên CPU/RAM
-docker stats sql-app
-
-# Dừng container
-docker stop sql-app
-
-# Khởi động lại container
-docker restart sql-app
-
-# Xóa container cũ để deploy bản mới
-docker rm -f sql-app
+# Hoặc build trực tiếp bằng Dockerfile
+docker build -t sql-transpiler:latest .
+docker run -d -p 7860:7860 --name sql-app sql-transpiler:latest
 ```
 
 ---
 
-## 8. Triển khai Docker lên Cloud & Server Nội bộ
+## 6. Tài liệu Hướng dẫn Sử dụng Chi tiết
 
-### 8.1. Triển khai lên VPS Riêng / Server Nội bộ (Ubuntu / Debian / CentOS)
-1. Cài đặt Docker trên server: `curl -fsSL https://get.docker.com | sh`
-2. Copy thư mục `Converter_Tool` lên server.
-3. Chạy `docker compose up -d`.
-4. Cấu hình **Nginx Reverse Proxy** và cấp chứng chỉ **SSL Let's Encrypt**:
-   ```nginx
-   server {
-       listen 80;
-       server_name sql-tool.tuanpv.local;
-
-       location / {
-           proxy_pass http://127.0.0.1:7860;
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto $scheme;
-       }
-   }
-   ```
-   Chạy lệnh cấp HTTPS tự động: `sudo certbot --nginx -d sql-tool.tuanpv.local`.
-
-### 8.2. Triển khai lên Render.com (Miễn phí 100% Container Docker)
-1. Đưa thư mục `Converter_Tool` lên GitHub Repository (chế độ Private).
-2. Đăng nhập [render.com](https://render.com) -> Chọn **New +** -> **Web Service**.
-3. Chọn repo GitHub của bạn -> Environment: chọn **Docker**.
-4. Render sẽ tự động đọc `Dockerfile` và deploy thành trang web có domain HTTPS miễn phí.
+👉 Vui lòng xem tài liệu chi tiết: **[HUONG_DAN_SU_DUNG.md](HUONG_DAN_SU_DUNG.md)** để nắm rõ từng bước thao tác với:
+- Cách viết và sử dụng Comment Tag trong SQL nhiều bước.
+- Ý nghĩa các trường: Thứ tự đầu, Bước nhảy, `rerun_term`, `term_code`.
+- Cách sử dụng và tùy biến sinh cấu hình cho Thông tư 35.
