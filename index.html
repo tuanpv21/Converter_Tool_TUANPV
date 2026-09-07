@@ -200,6 +200,12 @@
           </select>
         </div>
 
+        <!-- Keep Original Format Checkbox -->
+        <label style="display: inline-flex; align-items: center; gap: 6px; background: #FFFFFF; border: 1px solid #CBD5E1; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 700; color: #334155; user-select: none;">
+          <input type="checkbox" id="keep-original-format" checked style="accent-color: var(--msb-orange); cursor: pointer;" onchange="convertSQL()" />
+          <span>Giữ nguyên định dạng gốc (Không format lại dòng/khoảng trắng)</span>
+        </label>
+
         <button class="btn-secondary" onclick="swapContent()">⇆ Đổi chỗ nội dung</button>
         <button class="btn-secondary" onclick="loadSample()">📄 Mẫu thử</button>
         <button class="btn-secondary" onclick="clearAll()">🗑️ Xóa trắng</button>
@@ -603,7 +609,7 @@ def post_process_presto(sql, dialect, original_spark_sql=""):
         
     return sql
 
-def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto"):
+def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=False):
     try:
         if read_d == "spark" and write_d in ("presto", "trino", "athena"):
             parsed_list = sqlglot.parse(sql_code, read="spark")
@@ -611,10 +617,10 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto"):
             for parsed in parsed_list:
                 if parsed:
                     processed = pre_process_spark_ast(parsed)
-                    out_list.append(processed.sql(write_d, pretty=True))
+                    out_list.append(processed.sql(write_d, pretty=pretty))
             out = ";\\n\\n".join(out_list)
         else:
-            res = sqlglot.transpile(sql_code, read=read_d, write=write_d, pretty=True)
+            res = sqlglot.transpile(sql_code, read=read_d, write=write_d, pretty=pretty)
             out = ";\\n\\n".join(res)
             
         if write_d in ("presto", "trino", "athena"):
@@ -786,6 +792,17 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto"):
         res = res.replace(/\bconcat_ws\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'array_join($2, $1)');
         res = res.replace(/\bapprox_count_distinct\s*\(/gi, 'approx_distinct(');
         res = res.replace(/s3a:\/\//g, 's3://');
+
+        // Đồng bộ CAST cho các nhánh CASE WHEN khi giữ nguyên định dạng
+        res = res.replace(/(?is)\bCASE\b.*?\bEND\b/g, (block) => {
+          const branches = [...block.matchAll(/(?i)\b(then|else)\s+([^\s]+)/g)];
+          const hasStr = branches.some(b => /^['"].*['"]$/.test(b[2].trim()));
+          const hasNum = branches.some(b => /^\d+(?:\.\d+)?$/.test(b[2].trim()));
+          if (hasStr && hasNum) {
+            return block.replace(/(?i)\b(then|else)\s+(\d+(?:\.\d+)?)/g, '$1 CAST($2 AS VARCHAR)');
+          }
+          return block;
+        });
       }
       return res;
     }
@@ -842,13 +859,23 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto"):
       const read_d = currentMode === 'presto2spark' ? prestoDialect : 'spark';
       const write_d = currentMode === 'presto2spark' ? 'spark' : prestoDialect;
 
+      const keepFormat = document.getElementById('keep-original-format') ? document.getElementById('keep-original-format').checked : true;
+
+      // Khi người dùng chọn "Giữ nguyên định dạng gốc", ưu tiên regexConvert chuẩn xác để không bị format lại dòng/khoảng trắng
+      if (keepFormat) {
+        const converted = regexConvert(input, currentMode, prestoDialect);
+        document.getElementById('sql-output').value = restoreVariables(converted, varsList);
+        document.getElementById('status-bar').innerText = `✅ Đã chuyển đổi thành công (Giữ nguyên định dạng gốc - ${prestoDialect.toUpperCase()})`;
+        return;
+      }
+
       if (isSqlglotReady && pyodide) {
         try {
           pyodide.globals.set("g_sql", input);
           pyodide.globals.set("g_read", read_d);
           pyodide.globals.set("g_write", write_d);
           pyodide.globals.set("g_dialect", prestoDialect);
-          const res = await pyodide.runPythonAsync(`transpile_sql(g_sql, g_read, g_write, g_dialect)`);
+          const res = await pyodide.runPythonAsync(`transpile_sql(g_sql, g_read, g_write, g_dialect, pretty=True)`);
           
           if (res.startsWith("__ERROR__:")) {
             console.warn("sqlglot AST warning, fallback regex:", res);

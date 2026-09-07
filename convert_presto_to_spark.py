@@ -286,19 +286,38 @@ class RegexRuleConverter:
             res = re.sub(pattern, replacement, res)
         # Dọn dẹp AS (val, pos) nếu thiếu table alias
         res = re.sub(r'AS\s+\(([^)]+)\)', r'AS _t0(\1)', res)
+
+        # Đồng bộ CAST cho các nhánh CASE WHEN khi giữ nguyên định dạng
+        if self.mode == "spark2presto":
+            def harmonize_case_block(match):
+                block = match.group(0)
+                branches = re.findall(r'(?i)\b(then|else)\s+([^\s]+)', block)
+                has_str = any(re.match(r"^['\"].*['\"]$", v.strip()) for _, v in branches)
+                has_num = any(re.match(r"^\d+(?:\.\d+)?$", v.strip()) for _, v in branches)
+                if has_str and has_num:
+                    return re.sub(r'(?i)\b(then|else)\s+(\d+(?:\.\d+)?)', r'\1 CAST(\2 AS VARCHAR)', block)
+                return block
+            res = re.sub(r'(?is)\bCASE\b.*?\bEND\b', harmonize_case_block, res)
+
         return res
 
 
 # ==========================================
 # 5. PUBLIC API FUNCTIONS
 # ==========================================
-def convert_sql(sql_code: str, mode: str = "presto2spark", presto_dialect: str = "presto") -> str:
+def convert_sql(sql_code: str, mode: str = "presto2spark", presto_dialect: str = "presto", keep_format: bool = True) -> str:
     """
     mode: 'presto2spark' hoac 'spark2presto'
     presto_dialect: 'presto' (PrestoDB 0.2xx), 'trino' (Trino 330+/400+), 'athena' (AWS Athena)
+    keep_format: True de giu nguyen dinh dang goc khong format lai dong / khoang trang
     """
     # 1. Bảo vệ các biến tham số (Jinja {{...}}, Shell ${...})
     protected_sql, vars_list = protect_variables(sql_code)
+
+    if keep_format:
+        converter = RegexRuleConverter(mode=mode, presto_dialect=presto_dialect)
+        fallback_res = converter.convert(protected_sql)
+        return restore_variables(fallback_res, vars_list)
 
     if mode == "spark2presto":
         read_d = "spark"

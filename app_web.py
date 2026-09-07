@@ -668,8 +668,9 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
             query = req_data.get("query", "")
             mode = req_data.get("mode", "presto2spark")
             presto_dialect = req_data.get("presto_dialect", "presto")
+            keep_format = req_data.get("keep_format", True)
             try:
-                converted = convert_sql(query, mode=mode, presto_dialect=presto_dialect)
+                converted = convert_sql(query, mode=mode, presto_dialect=presto_dialect, keep_format=keep_format)
                 self.send_json(200, {"status": "ok", "result": converted})
             except Exception as e:
                 self.send_json(400, {"status": "error", "error": str(e)})
