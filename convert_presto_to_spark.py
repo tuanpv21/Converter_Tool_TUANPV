@@ -158,7 +158,110 @@ def pre_process_spark_ast(expression):
     except Exception:
         pass
 
+def pre_process_presto_ast(expression):
+    from sqlglot import exp
+
+    # 1. date_diff('month', d1, d2) -> months_between(d2, d1)
+    #    date_diff('day', d1, d2) -> datediff(d2, d1)
+    for dd in expression.find_all(exp.DateDiff):
+        unit = dd.args.get('unit')
+        unit_str = str(unit).lower() if unit else ''
+        end_d = dd.this
+        start_d = dd.expression
+        if 'month' in unit_str:
+            mb = exp.Anonymous(this='months_between', expressions=[end_d.copy(), start_d.copy()])
+            dd.replace(mb)
+        elif 'day' in unit_str:
+            diff = exp.Anonymous(this='datediff', expressions=[end_d.copy(), start_d.copy()])
+            dd.replace(diff)
+            
+    # 2. strpos(str, substr) -> instr(str, substr)
+    for anon in expression.find_all(exp.Anonymous):
+        if anon.this.upper() == 'STRPOS':
+            args = anon.expressions
+            if len(args) == 2:
+                instr_node = exp.Anonymous(this='instr', expressions=[args[0].copy(), args[1].copy()])
+                anon.replace(instr_node)
+
     return expression
+
+
+def post_process_spark_ast(sql: str, original_presto_sql: str = "") -> str:
+    # 1. Fix POSEXPLODE alias in Spark SQL:
+    # Presto original: CROSS JOIN UNNEST(arr) WITH ORDINALITY AS t(val, pos)
+    # sqlglot spark: LATERAL VIEW POSEXPLODE(arr) t AS val
+    # Fix: LATERAL VIEW POSEXPLODE(arr) t AS pos, val
+    if original_presto_sql:
+        m = re.search(r'(?is)WITH\s+ORDINALITY\s+AS\s+([a-zA-Z0-9_]+)\s*\(\s*([^,\s]+)\s*,\s*([^)\s]+)\s*\)', original_presto_sql)
+        if m:
+            t_alias, val_alias, pos_alias = m.group(1), m.group(2), m.group(3)
+            bad_spark_pat = rf'(?i)(LATERAL\s+VIEW\s+POSEXPLODE\s*\([^)]+\)\s+{t_alias}\s+AS\s+){val_alias}\b'
+            sql = re.sub(bad_spark_pat, rf'\g<1>{pos_alias}, {val_alias}', sql)
+
+    # 2. Fix INTERVAL '1' DAY -> INTERVAL 1 DAY
+    sql = re.sub(r'(?i)\bINTERVAL\s+[\'"](\d+)[\'"]\s+([a-zA-Z]+)\b', r'INTERVAL \1 \2', sql)
+    
+    return sql
+
+
+def replace_balanced_calls(sql: str, func_name: str, replacer_func) -> str:
+    """
+    Tìm và thay thế hàm func_name(...) chính xác theo cặp ngoặc đơn cân bằng,
+    hỗ trợ hàm lồng nhau vô hạn tầng mà không bị cắt nhầm ngoặc.
+    Thực hiện thay thế từ phải sang trái (innermost & rightmost first).
+    """
+    pattern = re.compile(rf'\b{func_name}\s*\(', re.IGNORECASE)
+    calls = []
+    for m in pattern.finditer(sql):
+        start_idx = m.start()
+        open_paren = m.end() - 1
+        
+        depth = 0
+        in_sq = False
+        in_dq = False
+        args = []
+        curr = []
+        i = open_paren + 1
+        n = len(sql)
+        while i < n:
+            c = sql[i]
+            if c == "'" and not in_dq:
+                if in_sq and i + 1 < n and sql[i+1] == "'":
+                    curr.append("''")
+                    i += 2
+                    continue
+                in_sq = not in_sq
+                curr.append(c)
+            elif c == '"' and not in_sq:
+                in_dq = not in_dq
+                curr.append(c)
+            elif not in_sq and not in_dq:
+                if c == '(':
+                    depth += 1
+                    curr.append(c)
+                elif c == ')':
+                    if depth == 0:
+                        args.append("".join(curr).strip())
+                        calls.append((start_idx, i + 1, args))
+                        break
+                    else:
+                        depth -= 1
+                        curr.append(c)
+                elif c == ',' and depth == 0:
+                    args.append("".join(curr).strip())
+                    curr = []
+                else:
+                    curr.append(c)
+            else:
+                curr.append(c)
+            i += 1
+            
+    for start, end, args in reversed(calls):
+        new_val = replacer_func(args)
+        if new_val is not None:
+            sql = sql[:start] + new_val + sql[end:]
+            
+    return sql
 
 
 # ==========================================
@@ -175,17 +278,19 @@ def transpile_with_sqlglot(sql_content: str, read_dialect: str, write_dialect: s
                     processed = pre_process_spark_ast(parsed)
                     out_list.append(processed.sql(write_dialect, pretty=True))
             res = ";\n\n".join(out_list)
-        else:
-            transpiled = sqlglot.transpile(
-                sql_content,
-                read=read_dialect,
-                write=write_dialect,
-                pretty=True
-            )
-            res = ";\n\n".join(transpiled)
-        if write_dialect in ("presto", "trino", "athena"):
             res = post_process_presto_dialect(res, presto_dialect, original_spark_sql=sql_content)
-        return res
+            return res
+        else:
+            # Presto -> Spark
+            parsed_list = sqlglot.parse(sql_content, read=read_dialect)
+            out_list = []
+            for parsed in parsed_list:
+                if parsed:
+                    processed = pre_process_presto_ast(parsed)
+                    out_list.append(processed.sql(write_dialect, pretty=True))
+            res = ";\n\n".join(out_list)
+            res = post_process_spark_ast(res, original_presto_sql=sql_content)
+            return res
     except ImportError:
         return None
     except Exception as e:
@@ -283,8 +388,69 @@ class RegexRuleConverter:
 
     def convert(self, sql: str) -> str:
         res = sql
+
+        if self.mode == "presto2spark":
+            # 1. Xử lý các hàm lồng nhau bằng balanced parentheses parser trước
+            def date_diff_rep(args):
+                if len(args) == 3:
+                    unit = args[0].replace("'", "").replace('"', '').strip().lower()
+                    d1, d2 = args[1].strip(), args[2].strip()
+                    if unit == 'day':
+                        return f"datediff({d2}, {d1})"
+                    elif unit == 'month':
+                        return f"months_between({d2}, {d1})"
+                    elif unit == 'year':
+                        return f"(months_between({d2}, {d1}) / 12)"
+                    elif unit in ('hour', 'minute', 'second'):
+                        return f"(unix_timestamp({d2}) - unix_timestamp({d1}))"
+                elif len(args) == 2:
+                    return f"datediff({args[1].strip()}, {args[0].strip()})"
+                return None
+
+            def date_add_rep(args):
+                if len(args) == 3:
+                    unit = args[0].replace("'", "").replace('"', '').strip().lower()
+                    n, d = args[1].strip(), args[2].strip()
+                    if unit == 'day':
+                        return f"date_add({d}, {n})"
+                    elif unit == 'month':
+                        return f"add_months({d}, {n})"
+                    elif unit == 'year':
+                        return f"add_months({d}, ({n}) * 12)"
+                return None
+
+            def date_parse_rep(args):
+                if len(args) >= 2:
+                    s, fmt = args[0].strip(), args[1].strip()
+                    fmt_clean = fmt.replace('%Y', 'yyyy').replace('%m', 'MM').replace('%d', 'dd') \
+                                   .replace('%H', 'HH').replace('%i', 'mm').replace('%s', 'ss')
+                    if fmt_clean in ("'yyyy-MM-dd'", '"yyyy-MM-dd"'):
+                        return f"to_date({s}, {fmt_clean})"
+                    return f"to_timestamp({s}, {fmt_clean})"
+                elif len(args) == 1:
+                    return f"to_date({args[0].strip()})"
+                return None
+
+            def date_format_rep(args):
+                if len(args) >= 2:
+                    s, fmt = args[0].strip(), args[1].strip()
+                    fmt_clean = fmt.replace('%Y', 'yyyy').replace('%m', 'MM').replace('%d', 'dd') \
+                                   .replace('%H', 'HH').replace('%i', 'mm').replace('%s', 'ss')
+                    return f"date_format({s}, {fmt_clean})"
+                return None
+
+            res = replace_balanced_calls(res, 'date_parse', date_parse_rep)
+            res = replace_balanced_calls(res, 'date_diff', date_diff_rep)
+            res = replace_balanced_calls(res, 'date_add', date_add_rep)
+            res = replace_balanced_calls(res, 'date_format', date_format_rep)
+            res = replace_balanced_calls(res, 'format_datetime', date_format_rep)
+
+            # 2. Xử lý INTERVAL chuẩn Spark: INTERVAL '1' DAY -> INTERVAL 1 DAY
+            res = re.sub(r'(?i)\bINTERVAL\s+[\'"](\d+)[\'"]\s+([a-zA-Z]+)\b', r'INTERVAL \1 \2', res)
+
         for pattern, replacement in self.rules:
             res = re.sub(pattern, replacement, res)
+
         # Dọn dẹp AS (val, pos) nếu thiếu table alias
         res = re.sub(r'AS\s+\(([^)]+)\)', r'AS _t0(\1)', res)
 

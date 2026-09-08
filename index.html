@@ -617,25 +617,8 @@ WHERE partition_date = '{{process_date}}';"></textarea>
 
   <div id="toast" class="toast">Thông báo</div>
 
-  <!-- ============================================================== -->
-  <!-- JAVASCRIPT LOGIC                                               -->
-  <!-- ============================================================== -->
-  <script>
-    let currentMode = 'presto2spark';
-    let currentActiveTab = 'transpiler';
-    let pyodide = null;
-    let isSqlglotReady = false;
-
-    // 1. KHOI TAO PYODIDE & SQLGLOT WEBASSEMBLY
-    async function initPyodideEngine() {
-      try {
-        pyodide = await loadPyodide();
-        document.getElementById('engine-text').innerText = "Đang nạp thư viện sqlglot...";
-        await pyodide.loadPackage("micropip");
-        const micropip = pyodide.pyimport("micropip");
-        await micropip.install("sqlglot");
-        
-        await pyodide.runPythonAsync(`
+  <!-- Python code for Pyodide sqlglot engine -->
+  <script type="text/python" id="py-sqlglot-logic">
 import sqlglot
 from sqlglot import exp
 from sqlglot.optimizer.annotate_types import annotate_types
@@ -717,22 +700,60 @@ def pre_process_spark_ast(expression):
 
     return expression
 
+def pre_process_presto_ast(expression):
+    from sqlglot import exp
+
+    # 1. date_diff('month', d1, d2) -> months_between(d2, d1)
+    #    date_diff('day', d1, d2) -> datediff(d2, d1)
+    for dd in expression.find_all(exp.DateDiff):
+        unit = dd.args.get('unit')
+        unit_str = str(unit).lower() if unit else ''
+        end_d = dd.this
+        start_d = dd.expression
+        if 'month' in unit_str:
+            mb = exp.Anonymous(this='months_between', expressions=[end_d.copy(), start_d.copy()])
+            dd.replace(mb)
+        elif 'day' in unit_str:
+            diff = exp.Anonymous(this='datediff', expressions=[end_d.copy(), start_d.copy()])
+            dd.replace(diff)
+            
+    # 2. strpos(str, substr) -> instr(str, substr)
+    for anon in expression.find_all(exp.Anonymous):
+        if anon.this.upper() == 'STRPOS':
+            args = anon.expressions
+            if len(args) == 2:
+                instr_node = exp.Anonymous(this='instr', expressions=[args[0].copy(), args[1].copy()])
+                anon.replace(instr_node)
+
+    return expression
+
+def post_process_spark(sql, original_presto_sql=""):
+    if original_presto_sql:
+        m = re.search(r'(?is)WITH\s+ORDINALITY\s+AS\s+([a-zA-Z0-9_]+)\s*\(\s*([^,\s]+)\s*,\s*([^)\s]+)\s*\)', original_presto_sql)
+        if m:
+            t_alias, val_alias, pos_alias = m.group(1), m.group(2), m.group(3)
+            bad_spark_pat = rf'(?i)(LATERAL\s+VIEW\s+POSEXPLODE\s*\([^)]+\)\s+{t_alias}\s+AS\s+){val_alias}\b'
+            sql = re.sub(bad_spark_pat, rf'\g<1>{pos_alias}, {val_alias}', sql)
+
+    sql = re.sub(r'(?i)\bINTERVAL\s+[\'"](\d+)[\'"]\s+([a-zA-Z]+)\b', r'INTERVAL \1 \2', sql)
+    return sql
+
 def post_process_presto(sql, dialect, original_spark_sql=""):
     if dialect in ("presto", "athena"):
-        pattern_ord = r'(?is)CROSS\\s+JOIN\\s+LATERAL\\s*\\(\\s*SELECT\\s+.*?\\s+FROM\\s+(UNNEST\\s*\\(.*?\\)\\s+WITH\\s+ORDINALITY\\s+AS\\s+[a-zA-Z0-9_]+(?:\\s*\\([^)]+\\))?)\\s*\\)'
-        sql = re.sub(pattern_ord, r'CROSS JOIN \\1', sql)
-        pattern_plain = r'(?is)CROSS\\s+JOIN\\s+LATERAL\\s*\\(\\s*SELECT\\s+.*?\\s+FROM\\s+(UNNEST\\s*\\(.*?\\)\\s+AS\\s+[a-zA-Z0-9_]+(?:\\s*\\([^)]+\\))?)\\s*\\)'
-        sql = re.sub(pattern_plain, r'CROSS JOIN \\1', sql)
+        pattern_ord = r'(?is)CROSS\s+JOIN\s+LATERAL\s*\(\s*SELECT\s+.*?\s+FROM\s+(UNNEST\s*\(.*?\)\s+WITH\s+ORDINALITY\s+AS\s+[a-zA-Z0-9_]+(?:\s*\([^)]+\))?)\s*\)'
+        sql = re.sub(pattern_ord, r'CROSS JOIN \1', sql)
+        pattern_plain = r'(?is)CROSS\s+JOIN\s+LATERAL\s*\(\s*SELECT\s+.*?\s+FROM\s+(UNNEST\s*\(.*?\)\s+AS\s+[a-zA-Z0-9_]+(?:\s*\([^)]+\))?)\s*\)'
+        sql = re.sub(pattern_plain, r'CROSS JOIN \1', sql)
 
     if original_spark_sql:
-        m_spark = re.search(r'(?is)POSEXPLODE\\s*\\([^)]+\\)\\s*(?:[a-zA-Z0-9_]+\\s+)?AS\\s+([a-zA-Z0-9_]+)\\s*,\\s*([a-zA-Z0-9_]+)', original_spark_sql)
+        m_spark = re.search(r'(?is)POSEXPLODE\s*\([^)]+\)\s*(?:[a-zA-Z0-9_]+\s+)?AS\s+([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)', original_spark_sql)
         if m_spark:
             pos_alias, val_alias = m_spark.group(1), m_spark.group(2)
-            bad_pat = rf'(?i)(WITH\\s+ORDINALITY\\s+AS\\s+[a-zA-Z0-9_]+\\s*\\()\\s*{pos_alias}\\s*,\\s*{val_alias}\\s*(\\))'
-            sql = re.sub(bad_pat, rf'\\g<1>{val_alias}, {pos_alias}\\2', sql)
+            bad_pat = rf'(?i)(WITH\s+ORDINALITY\s+AS\s+[a-zA-Z0-9_]+\s*\()\s*{pos_alias}\s*,\s*{val_alias}\s*(\))'
+            sql = re.sub(bad_pat, rf'\g<1>{val_alias}, {pos_alias}\2', sql)
 
     if dialect == "trino":
-        sql = re.sub(r'(?i)\\bformat_datetime\\s*\\(', 'date_format(', sql)
+        sql = re.sub(r'(?i)\bformat_datetime\s*\(', 'date_format(', sql)
         
     return sql
 
@@ -745,17 +766,44 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
                 if parsed:
                     processed = pre_process_spark_ast(parsed)
                     out_list.append(processed.sql(write_d, pretty=pretty))
-            out = ";\\n\\n".join(out_list)
-        else:
-            res = sqlglot.transpile(sql_code, read=read_d, write=write_d, pretty=pretty)
-            out = ";\\n\\n".join(res)
-            
-        if write_d in ("presto", "trino", "athena"):
+            out = ";\n\n".join(out_list)
             out = post_process_presto(out, presto_dialect, original_spark_sql=sql_code)
-        return out
+            return out
+        else:
+            # Presto -> Spark
+            parsed_list = sqlglot.parse(sql_code, read=read_d)
+            out_list = []
+            for parsed in parsed_list:
+                if parsed:
+                    processed = pre_process_presto_ast(parsed)
+                    out_list.append(processed.sql(write_d, pretty=pretty))
+            out = ";\n\n".join(out_list)
+            out = post_process_spark(out, original_presto_sql=sql_code)
+            return out
     except Exception as e:
         return f"__ERROR__:{str(e)}"
-        `);
+  </script>
+
+  <!-- ============================================================== -->
+  <!-- JAVASCRIPT LOGIC                                               -->
+  <!-- ============================================================== -->
+  <script>
+    let currentMode = 'presto2spark';
+    let currentActiveTab = 'transpiler';
+    let pyodide = null;
+    let isSqlglotReady = false;
+
+    // 1. KHOI TAO PYODIDE & SQLGLOT WEBASSEMBLY
+    async function initPyodideEngine() {
+      try {
+        pyodide = await loadPyodide();
+        document.getElementById('engine-text').innerText = "Đang nạp thư viện sqlglot...";
+        await pyodide.loadPackage("micropip");
+        const micropip = pyodide.pyimport("micropip");
+        await micropip.install("sqlglot");
+        
+        const pyCode = document.getElementById('py-sqlglot-logic').textContent;
+        await pyodide.runPythonAsync(pyCode);
 
         isSqlglotReady = true;
         document.getElementById('engine-dot').classList.add('ready');
@@ -794,23 +842,139 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
     // ==============================================================
     // TRANSPILER LOGIC (TAB 1)
     // ==============================================================
+    function replaceBalancedCalls(sql, funcName, replacerFunc) {
+      const pattern = new RegExp(`\\b${funcName}\\s*\\(`, 'gi');
+      const calls = [];
+      let match;
+      while ((match = pattern.exec(sql)) !== null) {
+        const startIdx = match.index;
+        const openParen = startIdx + match[0].length - 1;
+
+        let depth = 0;
+        let inSq = false;
+        let inDq = false;
+        const args = [];
+        let curr = [];
+        let i = openParen + 1;
+        const n = sql.length;
+
+        while (i < n) {
+          const c = sql[i];
+          if (c === "'" && !inDq) {
+            if (inSq && i + 1 < n && sql[i + 1] === "'") {
+              curr.push("''");
+              i += 2;
+              continue;
+            }
+            inSq = !inSq;
+            curr.push(c);
+          } else if (c === '"' && !inSq) {
+            inDq = !inDq;
+            curr.push(c);
+          } else if (!inSq && !inDq) {
+            if (c === '(') {
+              depth++;
+              curr.push(c);
+            } else if (c === ')') {
+              if (depth === 0) {
+                args.push(curr.join('').trim());
+                calls.push({ start: startIdx, end: i + 1, args: args });
+                break;
+              } else {
+                depth--;
+                curr.push(c);
+              }
+            } else if (c === ',' && depth === 0) {
+              args.push(curr.join('').trim());
+              curr = [];
+            } else {
+              curr.push(c);
+            }
+          } else {
+            curr.push(c);
+          }
+          i++;
+        }
+      }
+
+      // Thay thế từ phải sang trái (innermost / rightmost first)
+      for (let idx = calls.length - 1; idx >= 0; idx--) {
+        const item = calls[idx];
+        const newVal = replacerFunc(item.args);
+        if (newVal !== null && newVal !== undefined) {
+          sql = sql.substring(0, item.start) + newVal + sql.substring(item.end);
+        }
+      }
+      return sql;
+    }
+
     function regexConvert(sql, mode, prestoDialect = 'presto') {
       let res = sql;
       if (mode === 'presto2spark') {
+        // 1. Xử lý các hàm lồng nhau bằng balanced parentheses parser trước
+        res = replaceBalancedCalls(res, 'date_parse', (args) => {
+          if (args.length >= 2) {
+            let [s, fmt] = args;
+            const fmtClean = fmt.replace(/%Y/g, 'yyyy').replace(/%m/g, 'MM').replace(/%d/g, 'dd')
+                                .replace(/%H/g, 'HH').replace(/%i/g, 'mm').replace(/%s/g, 'ss');
+            if (fmtClean === "'yyyy-MM-dd'" || fmtClean === '"yyyy-MM-dd"') return `to_date(${s}, ${fmtClean})`;
+            return `to_timestamp(${s}, ${fmtClean})`;
+          } else if (args.length === 1) {
+            return `to_date(${args[0]})`;
+          }
+          return null;
+        });
+
+        res = replaceBalancedCalls(res, 'date_diff', (args) => {
+          if (args.length === 3) {
+            const unit = args[0].replace(/['"]/g, '').toLowerCase().trim();
+            const d1 = args[1].trim(), d2 = args[2].trim();
+            if (unit === 'day') return `datediff(${d2}, ${d1})`;
+            if (unit === 'month') return `months_between(${d2}, ${d1})`;
+            if (unit === 'year') return `(months_between(${d2}, ${d1}) / 12)`;
+            if (unit === 'hour' || unit === 'minute' || unit === 'second') return `(unix_timestamp(${d2}) - unix_timestamp(${d1}))`;
+          } else if (args.length === 2) {
+            return `datediff(${args[1].trim()}, ${args[0].trim()})`;
+          }
+          return null;
+        });
+
+        res = replaceBalancedCalls(res, 'date_add', (args) => {
+          if (args.length === 3) {
+            const unit = args[0].replace(/['"]/g, '').toLowerCase().trim();
+            const n = args[1].trim(), d = args[2].trim();
+            if (unit === 'day') return `date_add(${d}, ${n})`;
+            if (unit === 'month') return `add_months(${d}, ${n})`;
+            if (unit === 'year') return `add_months(${d}, (${n}) * 12)`;
+          }
+          return null;
+        });
+
+        const dateFmtReplacer = (args) => {
+          if (args.length >= 2) {
+            let [s, fmt] = args;
+            const fmtClean = fmt.replace(/%Y/g, 'yyyy').replace(/%m/g, 'MM').replace(/%d/g, 'dd')
+                                .replace(/%H/g, 'HH').replace(/%i/g, 'mm').replace(/%s/g, 'ss');
+            return `date_format(${s.trim()}, ${fmtClean})`;
+          }
+          return null;
+        };
+        res = replaceBalancedCalls(res, 'date_format', dateFmtReplacer);
+        res = replaceBalancedCalls(res, 'format_datetime', dateFmtReplacer);
+
+        // 2. Chuẩn hóa INTERVAL Spark: INTERVAL '1' DAY -> INTERVAL 1 DAY
+        res = res.replace(/\bINTERVAL\s+['"](\d+)['"]\s+([a-zA-Z]+)\b/gi, 'INTERVAL $1 $2');
+
+        // 3. UNNEST & POSEXPLODE
         res = res.replace(/CROSS\s+JOIN\s+UNNEST\s*\(\s*([^)]+?)\s*\)\s+WITH\s+ORDINALITY\s+AS\s+([a-zA-Z0-9_]+)\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gis, 'LATERAL VIEW POSEXPLODE($1) $2 AS $4, $3');
         res = res.replace(/CROSS\s+JOIN\s+UNNEST\s*\(\s*([^)]+?)\s*\)\s+AS\s+([a-zA-Z0-9_]+)\s*\(\s*([^)]+?)\s*\)/gis, 'LATERAL VIEW EXPLODE($1) $2 AS $3');
         res = res.replace(/CROSS\s+JOIN\s+LATERAL\s*\(\s*SELECT\s+.*?\s+FROM\s+UNNEST\s*\(\s*([^)]+?)\s*\)\s+WITH\s+ORDINALITY\s+AS\s+([a-zA-Z0-9_]+)\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*\)/gis, 'LATERAL VIEW POSEXPLODE($1) $2 AS $4, $3');
+        
+        // 4. Các quy tắc cơ bản
         res = res.replace(/\bVARCHAR\b/gi, 'STRING');
         res = res.replace(/\bVARBINARY\b/gi, 'BINARY');
         res = res.replace(/\bJSON\b/gi, 'STRING');
-        res = res.replace(/\bdate_parse\s*\(\s*([^,]+?)\s*,\s*['"]%Y-%m-%d['"]\s*\)/gi, 'to_date($1, "yyyy-MM-dd")');
-        res = res.replace(/\bdate_parse\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'to_timestamp($1, $2)');
-        res = res.replace(/\b(?:format_datetime|date_format)\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_format($1, $2)');
         res = res.replace(/\bnow\s*\(\s*\)/gi, 'current_timestamp()');
-        res = res.replace(/\bdate_add\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*((?:[^()]+|\([^()]*\))+?)\s*\)/gi, 'date_add($2, $1)');
-        res = res.replace(/\bdate_add\s*\(\s*['"]month['"]\s*,\s*([^,]+?)\s*,\s*((?:[^()]+|\([^()]*\))+?)\s*\)/gi, 'add_months($2, $1)');
-        res = res.replace(/\bdate_diff\s*\(\s*['"]day['"]\s*,\s*([^,]+?)\s*,\s*((?:[^()]+|\([^()]*\))+?)\s*\)/gi, 'datediff($2, $1)');
-        res = res.replace(/\bdate_diff\s*\(\s*['"]month['"]\s*,\s*([^,]+?)\s*,\s*((?:[^()]+|\([^()]*\))+?)\s*\)/gi, 'months_between($2, $1)');
         res = res.replace(/\bcurrent_date\b(?!\s*\()/gi, 'current_date()');
         res = res.replace(/\bjson_extract_scalar\s*\(/gi, 'get_json_object(');
         res = res.replace(/\bjson_extract\s*\(/gi, 'get_json_object(');
