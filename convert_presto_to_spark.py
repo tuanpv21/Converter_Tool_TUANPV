@@ -75,6 +75,12 @@ def post_process_presto_dialect(sql: str, dialect: str, original_spark_sql: str 
             bad_pat = rf'(?i)(WITH\s+ORDINALITY\s+AS\s+[a-zA-Z0-9_]+\s*\()\s*{pos_alias}\s*,\s*{val_alias}\s*(\))'
             sql = re.sub(bad_pat, rf'\g<1>{val_alias}, {pos_alias}\2', sql)
 
+    # 3. Đảm bảo hàm last_day được đổi thành last_day_of_month trên Presto
+    sql = re.sub(r'(?i)\blast_day\s*\(', 'last_day_of_month(', sql)
+
+    # 4. Auto-healing: dọn dẹp lỗi CAST(x AS type, 'fmt') nếu có
+    sql = re.sub(r'(?i)\bCAST\s*\(\s*(.*?)\s+AS\s+([a-zA-Z0-9_]+)\s*,\s*[\'"][^\'"]+[\'"]\s*\)', r'CAST(\1 AS \2)', sql)
+
     if dialect == "trino":
         sql = re.sub(r'(?i)\bformat_datetime\s*\(', 'date_format(', sql)
 
@@ -158,6 +164,8 @@ def pre_process_spark_ast(expression):
     except Exception:
         pass
 
+    return expression
+
 def pre_process_presto_ast(expression):
     from sqlglot import exp
 
@@ -182,6 +190,8 @@ def pre_process_presto_ast(expression):
             if len(args) == 2:
                 instr_node = exp.Anonymous(this='instr', expressions=[args[0].copy(), args[1].copy()])
                 anon.replace(instr_node)
+        elif anon.this.upper() == 'LAST_DAY_OF_MONTH':
+            anon.replace(exp.Anonymous(this='last_day', expressions=[e.copy() for e in anon.expressions]))
 
     return expression
 
@@ -339,13 +349,12 @@ class RegexRuleConverter:
                 # Aggregates
                 (r'(?i)\bapprox_distinct\s*\(', 'approx_count_distinct('),
                 (r'(?i)\barbitrary\s*\(', 'first('),
+                (r'(?i)\blast_day_of_month\s*\(', 'last_day('),
                 # S3 URI
                 (r's3://', 's3a://'),
             ]
         else:
             # spark2presto
-            date_fmt_func = 'date_format' if self.presto_dialect == 'trino' else 'format_datetime'
-            
             # Posexplode / Explode theo dialect
             if self.presto_dialect in ("presto", "athena"):
                 # PrestoDB: Cú pháp UNNEST trực tiếp không dùng lateral subquery
@@ -359,16 +368,8 @@ class RegexRuleConverter:
                 (r'(?is)LATERAL\s+VIEW\s+(?:OUTER\s+)?EXPLODE\s*\(\s*([^)]+?)\s*\)\s+([a-zA-Z0-9_]+)?\s*AS\s+([^\s,;]+)', r'CROSS JOIN UNNEST(\1) AS \2(\3)'),
                 # Types
                 (r'(?i)\bSTRING\b', 'VARCHAR'),
-                # Dates
-                (r'(?i)\bto_date\s*\(\s*([^,]+?)\s*,\s*[\'"]yyyy-MM-dd[\'"]\s*\)', r'date_parse(\1, \'%Y-%m-%d\')'),
-                (r'(?i)\bto_date\s*\(\s*([^,]+?)\s*\)', r'date_parse(\1, \'%Y-%m-%d\')'),
-                (r'(?i)\bto_timestamp\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', r'date_parse(\1, \2)'),
-                (r'(?i)\bdate_format\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', f'{date_fmt_func}(\\1, \\2)'),
                 (r'(?i)\bcurrent_timestamp\s*\(\s*\)', 'now()'),
-                (r'(?i)\bdate_add\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', r'date_add(\'day\', \2, \1)'),
-                (r'(?i)\badd_months\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', r'date_add(\'month\', \2, \1)'),
-                (r'(?i)\bmonths_between\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', r'date_diff(\'month\', \2, \1)'),
-                (r'(?i)\bdatediff\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', r'date_diff(\'day\', \2, \1)'),
+                (r'(?i)\blast_day\s*\(', 'last_day_of_month('),
                 (r'(?i)\bisnull\s*\(\s*([^)]+?)\s*\)', r'(\1 IS NULL)'),
                 (r'(?i)\bisnotnull\s*\(\s*([^)]+?)\s*\)', r'(\1 IS NOT NULL)'),
                 (r'(?i)\bnvl\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', r'coalesce(\1, \2)'),
@@ -388,6 +389,19 @@ class RegexRuleConverter:
 
     def convert(self, sql: str) -> str:
         res = sql
+
+        def java_to_strftime_fmt(fmt: str) -> str:
+            if not fmt or '%' in fmt:
+                return fmt
+            out = fmt
+            out = out.replace('yyyy', '%Y').replace('yy', '%y')
+            out = out.replace('MM', '%m')
+            out = out.replace('dd', '%d')
+            out = out.replace('HH', '%H').replace('hh', '%I')
+            out = out.replace('mm', '%i')
+            out = out.replace('ss', '%s')
+            out = out.replace('SSS', '%f')
+            return out
 
         if self.mode == "presto2spark":
             # 1. Xử lý các hàm lồng nhau bằng balanced parentheses parser trước
@@ -447,6 +461,98 @@ class RegexRuleConverter:
 
             # 2. Xử lý INTERVAL chuẩn Spark: INTERVAL '1' DAY -> INTERVAL 1 DAY
             res = re.sub(r'(?i)\bINTERVAL\s+[\'"](\d+)[\'"]\s+([a-zA-Z]+)\b', r'INTERVAL \1 \2', res)
+
+        elif self.mode == "spark2presto":
+            date_fmt_func = 'date_format' if self.presto_dialect == 'trino' else 'format_datetime'
+
+            # Auto-healing: dọn dẹp lỗi CAST(x AS type, 'fmt') nếu có
+            res = re.sub(r'(?i)\bCAST\s*\(\s*(.*?)\s+AS\s+([a-zA-Z0-9_]+)\s*,\s*[\'"][^\'"]+[\'"]\s*\)', r'CAST(\1 AS \2)', res)
+
+            def to_date_rep(args):
+                if len(args) >= 2:
+                    s, fmt = args[0].strip(), args[1].strip()
+                    fmt_clean = java_to_strftime_fmt(fmt)
+                    return f"CAST(date_parse({s}, {fmt_clean}) AS DATE)"
+                elif len(args) == 1:
+                    return f"CAST({args[0].strip()} AS DATE)"
+                return None
+
+            def to_timestamp_rep(args):
+                if len(args) >= 2:
+                    s, fmt = args[0].strip(), args[1].strip()
+                    fmt_clean = java_to_strftime_fmt(fmt)
+                    return f"date_parse({s}, {fmt_clean})"
+                elif len(args) == 1:
+                    return f"CAST({args[0].strip()} AS TIMESTAMP)"
+                return None
+
+            def last_day_rep(args):
+                if len(args) == 1:
+                    return f"last_day_of_month({args[0].strip()})"
+                return None
+
+            def date_format_rep(args):
+                if len(args) >= 2:
+                    s, fmt = args[0].strip(), args[1].strip()
+                    fmt_clean = java_to_strftime_fmt(fmt)
+                    s_lower = s.lower()
+                    if s.strip().upper().startswith("CAST(") and s.strip().upper().endswith("AS TIMESTAMP)"):
+                        target_s = s
+                    elif any(k in s_lower for k in ('last_day_of_month', 'last_day', 'current_date', 'as date')):
+                        target_s = f"CAST({s} AS TIMESTAMP)"
+                    else:
+                        target_s = s
+                    return f"{date_fmt_func}({target_s}, {fmt_clean})"
+                return None
+
+            def date_parse_rep(args):
+                if len(args) >= 2:
+                    s, fmt = args[0].strip(), args[1].strip()
+                    fmt_clean = java_to_strftime_fmt(fmt)
+                    return f"date_parse({s}, {fmt_clean})"
+                return None
+
+            def date_add_rep(args):
+                if len(args) == 2:
+                    d, n = args[0].strip(), args[1].strip()
+                    return f"date_add('day', {n}, {d})"
+                return None
+
+            def date_sub_rep(args):
+                if len(args) == 2:
+                    d, n = args[0].strip(), args[1].strip()
+                    return f"date_add('day', -({n}), {d})"
+                return None
+
+            def add_months_rep(args):
+                if len(args) == 2:
+                    d, n = args[0].strip(), args[1].strip()
+                    return f"date_add('month', {n}, {d})"
+                return None
+
+            def months_between_rep(args):
+                if len(args) == 2:
+                    d2, d1 = args[0].strip(), args[1].strip()
+                    return f"date_diff('month', {d1}, {d2})"
+                return None
+
+            def datediff_rep(args):
+                if len(args) == 2:
+                    d2, d1 = args[0].strip(), args[1].strip()
+                    return f"date_diff('day', {d1}, {d2})"
+                return None
+
+            res = replace_balanced_calls(res, 'to_date', to_date_rep)
+            res = replace_balanced_calls(res, 'to_timestamp', to_timestamp_rep)
+            res = replace_balanced_calls(res, 'last_day', last_day_rep)
+            res = replace_balanced_calls(res, 'date_format', date_format_rep)
+            res = replace_balanced_calls(res, 'format_datetime', date_format_rep)
+            res = replace_balanced_calls(res, 'date_parse', date_parse_rep)
+            res = replace_balanced_calls(res, 'date_add', date_add_rep)
+            res = replace_balanced_calls(res, 'date_sub', date_sub_rep)
+            res = replace_balanced_calls(res, 'add_months', add_months_rep)
+            res = replace_balanced_calls(res, 'months_between', months_between_rep)
+            res = replace_balanced_calls(res, 'datediff', datediff_rep)
 
         for pattern, replacement in self.rules:
             res = re.sub(pattern, replacement, res)

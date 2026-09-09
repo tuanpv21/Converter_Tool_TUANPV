@@ -724,6 +724,8 @@ def pre_process_presto_ast(expression):
             if len(args) == 2:
                 instr_node = exp.Anonymous(this='instr', expressions=[args[0].copy(), args[1].copy()])
                 anon.replace(instr_node)
+        elif anon.this.upper() == 'LAST_DAY_OF_MONTH':
+            anon.replace(exp.Anonymous(this='last_day', expressions=[e.copy() for e in anon.expressions]))
 
     return expression
 
@@ -751,6 +753,12 @@ def post_process_presto(sql, dialect, original_spark_sql=""):
             pos_alias, val_alias = m_spark.group(1), m_spark.group(2)
             bad_pat = rf'(?i)(WITH\s+ORDINALITY\s+AS\s+[a-zA-Z0-9_]+\s*\()\s*{pos_alias}\s*,\s*{val_alias}\s*(\))'
             sql = re.sub(bad_pat, rf'\g<1>{val_alias}, {pos_alias}\2', sql)
+
+    # Đảm bảo hàm last_day được đổi thành last_day_of_month trên Presto
+    sql = re.sub(r'(?i)\blast_day\s*\(', 'last_day_of_month(', sql)
+
+    # Auto-healing: dọn dẹp lỗi CAST(x AS type, 'fmt') nếu có
+    sql = re.sub(r'(?i)\bCAST\s*\(\s*(.*?)\s+AS\s+([a-zA-Z0-9_]+)\s*,\s*[\'"][^\'"]+[\'"]\s*\)', r'CAST(\1 AS \2)', sql)
 
     if dialect == "trino":
         sql = re.sub(r'(?i)\bformat_datetime\s*\(', 'date_format(', sql)
@@ -986,8 +994,129 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
         res = res.replace(/\barray_join\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'concat_ws($2, $1)');
         res = res.replace(/\bapprox_distinct\s*\(/gi, 'approx_count_distinct(');
         res = res.replace(/\barbitrary\s*\(/gi, 'first(');
+        res = res.replace(/\blast_day_of_month\s*\(/gi, 'last_day(');
         res = res.replace(/s3:\/\//g, 's3a://');
       } else {
+        const dateFmt = prestoDialect === 'trino' ? 'date_format' : 'format_datetime';
+
+        function javaToStrftime(fmt) {
+          if (!fmt || fmt.indexOf('%') !== -1) return fmt;
+          let out = fmt;
+          out = out.replace(/yyyy/g, '%Y').replace(/yy/g, '%y');
+          out = out.replace(/MM/g, '%m');
+          out = out.replace(/dd/g, '%d');
+          out = out.replace(/HH/g, '%H').replace(/hh/g, '%I');
+          out = out.replace(/mm/g, '%i');
+          out = out.replace(/ss/g, '%s');
+          out = out.replace(/SSS/g, '%f');
+          return out;
+        }
+
+        // Auto-healing: dọn dẹp lỗi CAST(x AS type, 'fmt') nếu có
+        res = res.replace(/\bCAST\s*\(\s*(.*?)\s+AS\s+([a-zA-Z0-9_]+)\s*,\s*['"][^'"]+['"]\s*\)/gi, 'CAST($1 AS $2)');
+
+        // 1. replaceBalancedCalls cho các hàm ngày tháng
+        res = replaceBalancedCalls(res, 'to_date', (args) => {
+          if (args.length >= 2) {
+            const s = args[0].trim(), fmt = javaToStrftime(args[1].trim());
+            return `CAST(date_parse(${s}, ${fmt}) AS DATE)`;
+          } else if (args.length === 1) {
+            return `CAST(${args[0].trim()} AS DATE)`;
+          }
+          return null;
+        });
+
+        res = replaceBalancedCalls(res, 'to_timestamp', (args) => {
+          if (args.length >= 2) {
+            const s = args[0].trim(), fmt = javaToStrftime(args[1].trim());
+            return `date_parse(${s}, ${fmt})`;
+          } else if (args.length === 1) {
+            return `CAST(${args[0].trim()} AS TIMESTAMP)`;
+          }
+          return null;
+        });
+
+        res = replaceBalancedCalls(res, 'last_day', (args) => {
+          if (args.length === 1) {
+            return `last_day_of_month(${args[0].trim()})`;
+          }
+          return null;
+        });
+
+        res = replaceBalancedCalls(res, 'date_format', (args) => {
+          if (args.length >= 2) {
+            const s = args[0].trim(), fmt = javaToStrftime(args[1].trim());
+            const sLower = s.toLowerCase();
+            let targetS = s;
+            if (/^CAST\(.*AS\s+TIMESTAMP\)$/i.test(s.trim())) {
+              targetS = s;
+            } else if (sLower.includes('last_day_of_month') || sLower.includes('last_day') || sLower.includes('current_date') || sLower.includes('as date')) {
+              targetS = `CAST(${s} AS TIMESTAMP)`;
+            }
+            return `${dateFmt}(${targetS}, ${fmt})`;
+          }
+          return null;
+        });
+
+        res = replaceBalancedCalls(res, 'format_datetime', (args) => {
+          if (args.length >= 2) {
+            const s = args[0].trim(), fmt = javaToStrftime(args[1].trim());
+            const sLower = s.toLowerCase();
+            let targetS = s;
+            if (/^CAST\(.*AS\s+TIMESTAMP\)$/i.test(s.trim())) {
+              targetS = s;
+            } else if (sLower.includes('last_day_of_month') || sLower.includes('last_day') || sLower.includes('current_date') || sLower.includes('as date')) {
+              targetS = `CAST(${s} AS TIMESTAMP)`;
+            }
+            return `${dateFmt}(${targetS}, ${fmt})`;
+          }
+          return null;
+        });
+
+        res = replaceBalancedCalls(res, 'date_parse', (args) => {
+          if (args.length >= 2) {
+            const s = args[0].trim(), fmt = javaToStrftime(args[1].trim());
+            return `date_parse(${s}, ${fmt})`;
+          }
+          return null;
+        });
+
+        res = replaceBalancedCalls(res, 'date_add', (args) => {
+          if (args.length === 2) {
+            return `date_add('day', ${args[1].trim()}, ${args[0].trim()})`;
+          }
+          return null;
+        });
+
+        res = replaceBalancedCalls(res, 'date_sub', (args) => {
+          if (args.length === 2) {
+            return `date_add('day', -(${args[1].trim()}), ${args[0].trim()})`;
+          }
+          return null;
+        });
+
+        res = replaceBalancedCalls(res, 'add_months', (args) => {
+          if (args.length === 2) {
+            return `date_add('month', ${args[1].trim()}, ${args[0].trim()})`;
+          }
+          return null;
+        });
+
+        res = replaceBalancedCalls(res, 'months_between', (args) => {
+          if (args.length === 2) {
+            return `date_diff('month', ${args[1].trim()}, ${args[0].trim()})`;
+          }
+          return null;
+        });
+
+        res = replaceBalancedCalls(res, 'datediff', (args) => {
+          if (args.length === 2) {
+            return `date_diff('day', ${args[1].trim()}, ${args[0].trim()})`;
+          }
+          return null;
+        });
+
+        // 2. UNNEST & EXPLODE
         if (prestoDialect === 'trino') {
           res = res.replace(/LATERAL\s+VIEW\s+(?:OUTER\s+)?POSEXPLODE\s*\(\s*([^)]+?)\s*\)\s*([a-zA-Z0-9_]+)?\s*AS\s+([^,\s]+)\s*,\s*([^\s,;]+)/gis, 'CROSS JOIN LATERAL (SELECT $3 - 1 AS $3, $4 FROM UNNEST($1) WITH ORDINALITY AS $2($4, $3))');
           res = res.replace(/\bformat_datetime\s*\(/gi, 'date_format(');
@@ -997,16 +1126,8 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
         res = res.replace(/LATERAL\s+VIEW\s+(?:OUTER\s+)?EXPLODE\s*\(\s*([^)]+?)\s*\)\s*([a-zA-Z0-9_]+)?\s*AS\s+([^\s,;]+)/gis, 'CROSS JOIN UNNEST($1) AS $2($3)');
         res = res.replace(/AS\s+\(([^)]+)\)/g, 'AS _t0($1)');
         res = res.replace(/\bSTRING\b/gi, 'VARCHAR');
-        res = res.replace(/\bto_date\s*\(\s*([^,]+?)\s*,\s*['"]yyyy-MM-dd['"]\s*\)/gi, "date_parse($1, '%Y-%m-%d')");
-        res = res.replace(/\bto_date\s*\(\s*([^,]+?)\s*\)/gi, "date_parse($1, '%Y-%m-%d')");
-        res = res.replace(/\bto_timestamp\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'date_parse($1, $2)');
-        const dateFmt = prestoDialect === 'trino' ? 'date_format' : 'format_datetime';
-        res = res.replace(/\bdate_format\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, `${dateFmt}($1, $2)`);
         res = res.replace(/\bcurrent_timestamp\s*\(\s*\)/gi, 'now()');
-        res = res.replace(/\bdate_add\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_add('day', $2, $1)");
-        res = res.replace(/\badd_months\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_add('month', $2, $1)");
-        res = res.replace(/\bmonths_between\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_diff('month', $2, $1)");
-        res = res.replace(/\bdatediff\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "date_diff('day', $2, $1)");
+        res = res.replace(/\blast_day\s*\(/gi, 'last_day_of_month(');
         res = res.replace(/\bisnull\s*\(\s*([^)]+?)\s*\)/gi, "($1 IS NULL)");
         res = res.replace(/\bisnotnull\s*\(\s*([^)]+?)\s*\)/gi, "($1 IS NOT NULL)");
         res = res.replace(/\bnvl\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "coalesce($1, $2)");
