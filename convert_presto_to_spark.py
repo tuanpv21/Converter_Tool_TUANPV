@@ -349,7 +349,11 @@ class RegexRuleConverter:
                 # Aggregates
                 (r'(?i)\bapprox_distinct\s*\(', 'approx_count_distinct('),
                 (r'(?i)\barbitrary\s*\(', 'first('),
+                (r'(?i)\barray_agg\s*\(', 'collect_list('),
+                (r'(?i)\bset_agg\s*\(', 'collect_set('),
+                (r'(?i)\bto_unixtime\s*\(', 'unix_timestamp('),
                 (r'(?i)\blast_day_of_month\s*\(', 'last_day('),
+                (r'(?i)\bcurrent_timestamp\b(?!\s*\()', 'current_timestamp()'),
                 # S3 URI
                 (r's3://', 's3a://'),
             ]
@@ -370,6 +374,9 @@ class RegexRuleConverter:
                 (r'(?i)\bSTRING\b', 'VARCHAR'),
                 (r'(?i)\bcurrent_timestamp\s*\(\s*\)', 'now()'),
                 (r'(?i)\blast_day\s*\(', 'last_day_of_month('),
+                (r'(?i)\bcollect_list\s*\(', 'array_agg('),
+                (r'(?i)\bcollect_set\s*\(', 'set_agg('),
+                (r'(?i)\bunix_timestamp\s*\(', 'to_unixtime('),
                 (r'(?i)\bisnull\s*\(\s*([^)]+?)\s*\)', r'(\1 IS NULL)'),
                 (r'(?i)\bisnotnull\s*\(\s*([^)]+?)\s*\)', r'(\1 IS NOT NULL)'),
                 (r'(?i)\bnvl\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)', r'coalesce(\1, \2)'),

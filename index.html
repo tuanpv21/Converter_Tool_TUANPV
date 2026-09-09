@@ -994,7 +994,11 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
         res = res.replace(/\barray_join\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, 'concat_ws($2, $1)');
         res = res.replace(/\bapprox_distinct\s*\(/gi, 'approx_count_distinct(');
         res = res.replace(/\barbitrary\s*\(/gi, 'first(');
+        res = res.replace(/\barray_agg\s*\(/gi, 'collect_list(');
+        res = res.replace(/\bset_agg\s*\(/gi, 'collect_set(');
+        res = res.replace(/\bto_unixtime\s*\(/gi, 'unix_timestamp(');
         res = res.replace(/\blast_day_of_month\s*\(/gi, 'last_day(');
+        res = res.replace(/\bcurrent_timestamp\b(?!\s*\()/gi, 'current_timestamp()');
         res = res.replace(/s3:\/\//g, 's3a://');
       } else {
         const dateFmt = prestoDialect === 'trino' ? 'date_format' : 'format_datetime';
@@ -1128,6 +1132,9 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
         res = res.replace(/\bSTRING\b/gi, 'VARCHAR');
         res = res.replace(/\bcurrent_timestamp\s*\(\s*\)/gi, 'now()');
         res = res.replace(/\blast_day\s*\(/gi, 'last_day_of_month(');
+        res = res.replace(/\bcollect_list\s*\(/gi, 'array_agg(');
+        res = res.replace(/\bcollect_set\s*\(/gi, 'set_agg(');
+        res = res.replace(/\bunix_timestamp\s*\(/gi, 'to_unixtime(');
         res = res.replace(/\bisnull\s*\(\s*([^)]+?)\s*\)/gi, "($1 IS NULL)");
         res = res.replace(/\bisnotnull\s*\(\s*([^)]+?)\s*\)/gi, "($1 IS NOT NULL)");
         res = res.replace(/\bnvl\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi, "coalesce($1, $2)");
