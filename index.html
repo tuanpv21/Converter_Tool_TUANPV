@@ -269,8 +269,8 @@
           <div class="form-group-inline">
             <label class="field-label">Chạy Lại (is_rerun)</label>
             <select id="cir-is-rerun" class="field-select">
-              <option value="Y" selected>Y - Cho phép</option>
-              <option value="N">N - Không</option>
+              <option value="1" selected>1 - Cho phép</option>
+              <option value="0">0 - Không</option>
             </select>
           </div>
           <div class="form-group-inline" style="grid-column: span 6; margin-top: 6px;">
@@ -429,10 +429,11 @@
             <thead>
               <tr>
                 <th style="width: 40px; text-align: center;">STT</th>
-                <th style="width: 90px;">Cột Excel</th>
-                <th style="width: 90px;">Dòng Excel</th>
-                <th>Tên Cột (item_name)</th>
-                <th>Cột Bảng Nguồn (ITEM_VALUE)</th>
+                <th style="width: 85px;">Cột Excel</th>
+                <th style="width: 85px;">Dòng Excel</th>
+                <th style="width: 70px; text-align: center;">Dòng DB</th>
+                <th>Mô tả</th>
+                <th>Tên cột bảng đích</th>
                 <th style="width: 110px;">Kiểu DL</th>
                 <th style="width: 110px;">Làm Tròn (unit)</th>
                 <th style="width: 130px;">Mã Cột Sinh Ra</th>
@@ -1534,12 +1535,12 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
               <input type="number" class="table-input" value="${col.row_excel}" style="width: 75px;"
                 onchange="updateColField(${idx}, 'row_excel', parseInt(this.value, 10))" />
             </td>
-            <td style="color: #047857; font-weight: 700; font-family: monospace; padding-left: 10px;">
+            <td style="color: #047857; font-weight: 700; font-family: monospace; text-align: center;">
               ${rowDb}
             </td>
             <td>
               <input type="text" class="table-input" value="${col.item_name}" 
-                placeholder="Tên cột..."
+                placeholder="Mô tả..."
                 onchange="updateColField(${idx}, 'item_name', this.value)" />
             </td>
             <td>
@@ -1587,7 +1588,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       document.getElementById('cir-sheet-no').value = "1";
       document.getElementById('cir-group-name').value = "BÁO CÁO HOẠT ĐỘNG BẢO LÃNH";
       document.getElementById('cir-term-code').value = "M";
-      document.getElementById('cir-is-rerun').value = "Y";
+      document.getElementById('cir-is-rerun').value = "1";
       document.getElementById('cir-user-modify').value = "TUANPV";
       document.getElementById('cir-result-table').value = "{{silver}}.{{silver_schema}}.c_pre_mbnt_cv2401 A";
       document.getElementById('cir-branch-mode').value = "total";
@@ -1621,6 +1622,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       document.getElementById('cir-group-name').value = "";
       document.getElementById('cir-where-clause').value = "";
       document.getElementById('cir-sql-output').value = "";
+      if (document.getElementById('cir-is-rerun')) document.getElementById('cir-is-rerun').value = "1";
       if (document.getElementById('cir-pre-source-id')) document.getElementById('cir-pre-source-id').value = "NULL";
       if (document.getElementById('cir-is-used')) document.getElementById('cir-is-used').value = "1";
       if (document.getElementById('cir-source-order-id')) document.getElementById('cir-source-order-id').value = "1";
@@ -1826,7 +1828,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
         circularOrders.forEach(ord => {
           sql += `INSERT INTO ${fullOrderTable} (stt, order_id, item_name) VALUES ('${escapeSqlStr(ord.stt)}', ${ord.order_id}, '${escapeSqlStr(ord.item_name)}');\n`;
         });
-        sql += `\nCOMMIT;\n\n\n`;
+        sql += `\n\n`;
       }
 
       // 2. XÓA DỮ LIỆU CŨ THEO KEY CHUNG CỦA BÁO CÁO (KÈM SCHEMA)
@@ -1835,8 +1837,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       sql += `-- =========================================================================================\n`;
       sql += `DELETE FROM ${targetSchema}C_GROUP_ITEM WHERE group_item_code = '${escapeSqlStr(groupCode)}';\n`;
       sql += `DELETE FROM ${targetSchema}C_ITEM_ORG WHERE group_item_code = '${escapeSqlStr(groupCode)}';\n`;
-      sql += `DELETE FROM ${targetSchema}C_SOURCE_CODE WHERE org_item_code LIKE '${escapeSqlStr(groupCode)}_%';\n`;
-      sql += `COMMIT;\n\n\n`;
+      sql += `DELETE FROM ${targetSchema}C_SOURCE_CODE WHERE org_item_code LIKE '${escapeSqlStr(groupCode)}_%';\n\n`;
 
       // 3. C_GROUP_ITEM
       sql += `-- =========================================================================================\n`;
@@ -1859,7 +1860,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       sql += `    '${escapeSqlStr(groupName)}',\n`;
       sql += `    '${escapeSqlStr(termCode)}',\n`;
       sql += `    '${escapeSqlStr(termName)}',\n`;
-      sql += `    '${escapeSqlStr(isRerun)}'\n`;
+      sql += `    ${isRerun}\n`;
       sql += `);\n\n\n`;
 
       // 4. C_ITEM_ORG
@@ -1880,7 +1881,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
         sql += `    '${escapeSqlStr(orgItemCode)}', '${escapeSqlStr(groupCode)}', '${escapeSqlStr(sbvGroupCode)}', NULL, 'DR',\n`;
         sql += `    '${escapeSqlStr(col.item_name)}', NULL, '${escapeSqlStr(col.col_location)}', ${rowDb}, NULL,\n`;
         sql += `    NULL, NULL, 0, '${escapeSqlStr(col.data_type || 'NUMBER')}', ${unitVal},\n`;
-        sql += `    NULL, NULL, SYSDATE, '${escapeSqlStr(userModify)}', 'FORM', NULL\n`;
+        sql += `    NULL, NULL, CURRENT_DATE, '${escapeSqlStr(userModify)}', 'FORM', NULL\n`;
         sql += `);\n`;
       });
       sql += `\n\n`;
@@ -1893,7 +1894,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
         const orgItemCode = `${groupCode}_${col.col_location}`;
         const sourceColExpr = col.source_col || `A.COL_${col.col_location}`;
 
-        let rawSql = `SELECT '${orgItemCode}' AS ORG_ITEM_CODE, ${sourceColExpr} AS ITEM_VALUE, ${branchSqlExpr} AS BRANCH_ID, ${orderColExpr} AS ORDER_ID FROM ${fromAndJoinExpr}`;
+        let rawSql = `SELECT '${orgItemCode}' AS ORG_ITEM_CODE, ${sourceColExpr} AS ITEM_VALUE, ${branchSqlExpr} AS BRANCH_ID, ${orderColExpr} AS ORG_ORDER_ID FROM ${fromAndJoinExpr}`;
         if (whereClause) {
           rawSql += ` WHERE ${whereClause}`;
         }
@@ -1917,8 +1918,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
         sql += `);\n`;
       });
 
-      sql += `\nCOMMIT;\n`;
-      sql += `-- ======================= HOÀN TẤT SINH CẤU HÌNH CHO ${groupCode} =======================\n`;
+      sql += `\n-- ======================= HOÀN TẤT SINH CẤU HÌNH CHO ${groupCode} =======================\n`;
 
       document.getElementById('cir-sql-output').value = sql;
       showToast(`Đã sinh thành công script SQL cho ${groupCode} (${circularColumns.length} cột, bảng ${orderTableName})!`);
