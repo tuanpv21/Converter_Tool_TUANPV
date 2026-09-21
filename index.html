@@ -2596,10 +2596,14 @@ GROUP BY branch_id;`;
           const colName = match[1];
           const rawType = match[2].toUpperCase();
           const baseType = rawType.split('(')[0].trim();
-          let category = 'STRING';
+          let category = 'VARCHAR';
 
-          if (/^(INT|INTEGER|BIGINT|SMALLINT|TINYINT|NUMBER|NUMERIC|DECIMAL|FLOAT|DOUBLE|REAL|MONEY|BYTEINT)$/i.test(baseType)) {
-            category = 'NUMBER';
+          if (/^(BIGINT)$/i.test(baseType)) {
+            category = 'BIGINT';
+          } else if (/^(INT|INTEGER|SMALLINT|TINYINT|BYTEINT)$/i.test(baseType)) {
+            category = 'INT';
+          } else if (/^(NUMBER|NUMERIC|DECIMAL|FLOAT|DOUBLE|REAL|MONEY)$/i.test(baseType)) {
+            category = 'DECIMAL';
           } else if (/^(DATE)$/i.test(baseType)) {
             category = 'DATE';
           } else if (/^(TIMESTAMP|DATETIME|TIME)$/i.test(baseType)) {
@@ -2682,7 +2686,7 @@ GROUP BY branch_id;`;
         let html = '';
         parsedTableInfo.columns.forEach(col => {
           let badgeClass = 'badge-str';
-          if (col.category === 'NUMBER') badgeClass = 'badge-num';
+          if (col.category === 'INT' || col.category === 'BIGINT' || col.category === 'DECIMAL') badgeClass = 'badge-num';
           else if (col.category === 'DATE') badgeClass = 'badge-date';
           else if (col.category === 'TIMESTAMP') badgeClass = 'badge-time';
           html += `<span class="col-badge ${badgeClass}">${col.name} <small>(${col.rawType})</small></span>`;
@@ -2779,10 +2783,46 @@ GROUP BY branch_id;`;
       if (val === null || val === undefined) return 'NULL';
       val = String(val).trim();
       if (val === '' || val.toUpperCase() === 'NULL') {
-        return emptyAsNull ? 'NULL' : "''";
+        return emptyAsNull ? 'NULL' : (colCategory === 'VARCHAR' ? "''" : 'NULL');
       }
 
-      if (colCategory === 'NUMBER') {
+      // 1. TỰ ĐỘNG CHUYỂN ĐỔI KIỂU INT & BIGINT (Số nguyên)
+      if (colCategory === 'INT' || colCategory === 'BIGINT') {
+        let clean = val.replace(/[$₫đVNDUSD\s]/gi, '');
+        // Lọc bỏ dấu phẩy phân tách hàng nghìn (ví dụ: 150,000,000 -> 150000000)
+        if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(clean)) {
+          clean = clean.replace(/,/g, '');
+        } else if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(clean)) {
+          clean = clean.replace(/\./g, '').replace(',', '.');
+        }
+
+        // Xử lý notation khoa học của Excel (ví dụ 1.5E+08 -> 150000000)
+        if (/^[+-]?\d+(\.\d+)?[eE][+-]?\d+$/.test(clean)) {
+          try {
+            clean = Math.round(Number(clean)).toString();
+          } catch(e) {}
+        }
+
+        // Lọc bỏ phần đuôi .0 hoặc .00 do Excel tự ý xuất ra dạng số thực (ví dụ 20260921.0 -> 20260921)
+        if (/^-?\d+\.0+$/.test(clean)) {
+          clean = clean.split('.')[0];
+        } else if (/^-?\d+\.\d+$/.test(clean)) {
+          // Nếu có số thập phân lẻ thực sự nhập vào cột INT -> làm tròn thành số nguyên
+          const num = Number(clean);
+          if (!isNaN(num)) {
+            clean = Math.round(num).toString();
+          }
+        }
+
+        // Nếu là số nguyên chuẩn hợp lệ -> xuất ra số nguyên trần (không nháy đơn)
+        if (/^-?\d+$/.test(clean)) {
+          return clean;
+        }
+        return emptyAsNull ? 'NULL' : `'${clean.replace(/'/g, "''")}'`;
+      }
+
+      // 2. TỰ ĐỘNG CHUYỂN ĐỔI KIỂU DECIMAL / FLOAT / NUMBER (Số thực/Tiền tệ)
+      if (colCategory === 'DECIMAL' || colCategory === 'NUMBER') {
         let clean = val.replace(/[$₫đVNDUSD\s]/gi, '');
         if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(clean)) {
           clean = clean.replace(/,/g, '');
@@ -2791,12 +2831,33 @@ GROUP BY branch_id;`;
         } else if (/^-?\d+,\d+$/.test(clean)) {
           clean = clean.replace(',', '.');
         }
+
+        if (/^[+-]?\d+(\.\d+)?[eE][+-]?\d+$/.test(clean)) {
+          try {
+            clean = Number(clean).toString();
+          } catch(e) {}
+        }
+
         if (!isNaN(Number(clean)) && clean !== '') {
           return clean;
         }
         return emptyAsNull ? 'NULL' : `'${clean.replace(/'/g, "''")}'`;
       }
 
+      // 3. TỰ ĐỘNG CHUYỂN ĐỔI KIỂU VARCHAR / CHAR / NVARCHAR / STRING
+      if (colCategory === 'VARCHAR') {
+        // Nếu Excel vô tình đổi mã số dài (số tài khoản, CIF) thành notation khoa học: 1.23456789E+11
+        if (/^[+-]?\d+(\.\d+)?[eE][+-]?\d+$/.test(val)) {
+          try {
+            const bigNum = BigInt(Math.round(Number(val)));
+            return `'${bigNum.toString()}'`;
+          } catch(e) {}
+        }
+        // Luôn bọc trong dấu nháy đơn, tự động escape nháy đơn bên trong (' -> '')
+        return `'${val.replace(/'/g, "''")}'`;
+      }
+
+      // 4. KIỂU DATE
       if (colCategory === 'DATE') {
         let stdDate = val;
         const dmyMatch = val.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
@@ -2818,6 +2879,7 @@ GROUP BY branch_id;`;
         }
       }
 
+      // 5. KIỂU TIMESTAMP
       if (colCategory === 'TIMESTAMP') {
         if (dialect === 'oracle') {
           return `TO_TIMESTAMP('${val}', 'YYYY-MM-DD HH24:MI:SS')`;
@@ -2828,6 +2890,7 @@ GROUP BY branch_id;`;
         }
       }
 
+      // 6. KIỂU BOOLEAN
       if (colCategory === 'BOOLEAN') {
         const lower = val.toLowerCase();
         if (lower === 'true' || lower === '1' || lower === 't' || lower === 'yes') return 'TRUE';
