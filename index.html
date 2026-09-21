@@ -109,6 +109,15 @@
     .btn-row-del { background: transparent; color: #EF4444; border: 1px solid #FCA5A5; border-radius: 4px; padding: 3px 8px; cursor: pointer; font-size: 11px; font-weight: bold; }
     .btn-row-del:hover { background: #EF4444; color: white; border-color: #EF4444; }
 
+    /* TAB 4: INSERT TABLE FROM EXCEL BADGES & STYLES */
+    .col-badge { display: inline-flex; align-items: center; gap: 4px; background: #F1F5F9; color: #1E293B; border: 1px solid #CBD5E1; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-family: monospace; font-weight: 600; }
+    .col-badge small { color: #64748B; font-weight: 500; }
+    .col-badge.badge-num { background: #ECFDF5; color: #065F46; border-color: #A7F3D0; }
+    .col-badge.badge-date { background: #EFF6FF; color: #1E40AF; border-color: #BFDBFE; }
+    .col-badge.badge-time { background: #FAF5FF; color: #6B21A8; border-color: #E9D5FF; }
+    .col-badge.badge-str { background: #FFF7ED; color: #9A3412; border-color: #FED7AA; }
+    @media (max-width: 900px) { .ins-split-grid { grid-template-columns: 1fr !important; } }
+
     /* Login Modal */
     .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 999; }
     .auth-card { background: #FFFFFF; border: 1px solid var(--msb-orange-border); border-radius: 12px; padding: 32px; width: 100%; max-width: 380px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15); }
@@ -152,6 +161,9 @@
         </button>
         <button id="nav-btn-circular" class="nav-tab" onclick="switchNavTab('circular')">
           📊 Tool Gent Config File Circular
+        </button>
+        <button id="nav-btn-insert-excel" class="nav-tab" onclick="switchNavTab('insert-excel')">
+          📋 Tool Insert Table From Excel
         </button>
       </div>
     </div>
@@ -519,7 +531,7 @@
           </div>
           <div class="form-group-inline">
             <label class="field-label">Kỳ Chạy Lại (rerun_term)</label>
-            <input type="text" id="pipe-rerun-term" class="field-input" value="TRUOC_CIC" placeholder="VD: TRUOC_CIC" />
+            <input type="text" id="pipe-rerun-term" class="field-input" value="" placeholder="Để trống = NULL (VD: TRUOC_CIC)" />
           </div>
           <div class="form-group-inline">
             <label class="field-label">Sử Dụng (is_used)</label>
@@ -612,6 +624,132 @@ WHERE partition_date = '{{process_date}}';"></textarea>
       </div>
       <div style="flex: 1; display: flex; flex-direction: column;">
         <textarea id="pipe-sql-output" readonly style="flex: 1; width: 100%; min-height: 280px; background: #090E1A; color: #34D399; font-family: monospace; font-size: 12px; padding: 14px; border: none; outline: none; line-height: 1.5; resize: none;" placeholder="Nhấn nút '🚀 Sinh Câu Lệnh INSERT' ở trên để tạo toàn bộ script SQL..."></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- TAB 4: TOOL INSERT TABLE FROM EXCEL                           -->
+  <!-- ============================================================== -->
+  <div id="view-insert-excel" class="circular-view" style="display: none;">
+    <!-- Card 1: Configuration & Options -->
+    <div class="circular-card">
+      <div class="circular-card-header" style="justify-content: space-between;">
+        <span>⚙️ 1. CẤU HÌNH SINH SQL INSERT</span>
+        <div class="btn-group">
+          <button class="btn-secondary" onclick="loadSampleInsertExcel()" style="padding: 4px 10px; font-size: 11px;">📋 Nạp Mẫu Thử</button>
+          <button class="btn-secondary" onclick="clearInsertExcelForm()" style="padding: 4px 10px; font-size: 11px; background: #FFF1F2; color: #E11D48; border-color: #FECDD3;">🗑️ Xóa Trắng</button>
+          <button class="btn-primary" onclick="generateInsertSQL()" style="padding: 5px 16px; font-size: 12px; font-weight: 700;">🚀 Sinh Câu Lệnh INSERT</button>
+        </div>
+      </div>
+      <div class="circular-card-body">
+        <div class="form-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+          <div class="form-group-inline">
+            <label class="field-label">Kiểu Câu Lệnh (Insert Mode)</label>
+            <select id="ins-mode" class="field-select">
+              <option value="batch" selected>Batch INSERT (VALUES (...), (...))</option>
+              <option value="single">Từng câu riêng (INSERT INTO ...;)</option>
+            </select>
+          </div>
+          <div class="form-group-inline">
+            <label class="field-label">Số Dòng Mỗi Batch (Batch Size)</label>
+            <select id="ins-batch-size" class="field-select">
+              <option value="100" selected>100 dòng / câu</option>
+              <option value="500">500 dòng / câu</option>
+              <option value="1000">1000 dòng / câu</option>
+              <option value="999999">Tất cả vào 1 câu</option>
+            </select>
+          </div>
+          <div class="form-group-inline">
+            <label class="field-label">SQL Dialect / Engine</label>
+            <select id="ins-dialect" class="field-select">
+              <option value="spark" selected>Spark SQL / Presto / Trino</option>
+              <option value="oracle">Oracle (TO_DATE, TO_TIMESTAMP)</option>
+              <option value="standard">Standard SQL / PostgreSQL / MySQL</option>
+            </select>
+          </div>
+          <div class="form-group-inline">
+            <label class="field-label">Dòng Đầu Là Tiêu Đề Cột?</label>
+            <select id="ins-has-header" class="field-select" onchange="renderExcelPreview()">
+              <option value="1" selected>Có (Khớp theo tên cột)</option>
+              <option value="0">Không (Khớp theo thứ tự 1-1)</option>
+            </select>
+          </div>
+          <div class="form-group-inline">
+            <label class="field-label">Xử Lý Giá Trị Rỗng / Trống</label>
+            <select id="ins-empty-as-null" class="field-select">
+              <option value="1" selected>Để giá trị NULL (không nháy)</option>
+              <option value="0">Để chuỗi rỗng ''</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2: 2 Cột Nhập Liệu: Bên trái DDL, Bên phải Data Excel -->
+    <div class="ins-split-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+      <!-- Khối DDL -->
+      <div class="circular-card" style="margin-bottom: 0; display: flex; flex-direction: column;">
+        <div class="circular-card-header" style="justify-content: space-between;">
+          <span>📝 2. CÂU LỆNH TẠO BẢNG (CREATE TABLE DDL)</span>
+          <span id="ins-ddl-status" style="font-size: 11px; font-weight: 700; color: #047857;">Chưa có DDL</span>
+        </div>
+        <div class="circular-card-body" style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
+          <textarea id="ins-ddl-input" oninput="onDDLInputChanged()" style="flex: 1; min-height: 200px; width: 100%; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #CBD5E1; border-radius: 6px; resize: vertical;" placeholder="Dán câu lệnh CREATE TABLE tại đây...&#10;&#10;Ví dụ:&#10;CREATE TABLE prod_silver_ssd.t24.fnc_cic_eod_calc (&#10;    branch_id VARCHAR(20),&#10;    customer_cif VARCHAR(50),&#10;    account_no VARCHAR(50),&#10;    total_balance DECIMAL(18, 2),&#10;    created_date DATE,&#10;    etl_date INT&#10;);"></textarea>
+          <!-- Badges các cột đã nhận diện -->
+          <div id="ins-cols-badge-container" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 80px; overflow-y: auto; padding: 4px 0;"></div>
+        </div>
+      </div>
+
+      <!-- Khối Excel Data -->
+      <div class="circular-card" style="margin-bottom: 0; display: flex; flex-direction: column;">
+        <div class="circular-card-header" style="justify-content: space-between;">
+          <span>📊 3. DỮ LIỆU EXCEL (PASTE TAB-DELIMITED HOẶC CSV)</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span id="ins-data-status" style="font-size: 11px; font-weight: 700; color: #047857;">0 dòng</span>
+            <label class="btn-secondary" style="padding: 3px 8px; font-size: 11px; cursor: pointer;">
+              📂 Chọn File CSV/TSV
+              <input type="file" id="ins-file-upload" accept=".csv,.tsv,.txt,.tab" style="display: none;" onchange="handleExcelFileUpload(event)">
+            </label>
+          </div>
+        </div>
+        <div class="circular-card-body" style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
+          <textarea id="ins-data-input" oninput="onExcelDataInputChanged()" style="flex: 1; min-height: 200px; width: 100%; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #CBD5E1; border-radius: 6px; resize: vertical; white-space: pre;" placeholder="Copy các ô từ Excel rồi Ctrl+V dán vào đây...&#10;&#10;Dữ liệu mẫu:&#10;branch_id&#9;customer_cif&#9;account_no&#9;total_balance&#9;created_date&#9;etl_date&#10;VN001&#9;CIF123456&#9;0011002233&#9;15000000.50&#9;2026-09-21&#9;20260921&#10;VN002&#9;CIF654321&#9;0022003344&#9;25000000.00&#9;2026-09-21&#9;20260921"></textarea>
+          <div style="font-size: 11px; color: #64748B;">
+            💡 <i>Mẹo: Trong Excel, chỉ cần bôi đen vùng dữ liệu, nhấn Ctrl+C rồi bấm vào ô trên nhấn Ctrl+V.</i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 3: Preview Data & Mapping -->
+    <div class="circular-card" id="ins-preview-card" style="display: none;">
+      <div class="circular-card-header" style="justify-content: space-between;">
+        <span>🔍 4. XEM TRƯỚC GHÉP CỘT &amp; 5 DÒNG ĐẦU TIÊN TỪ EXCEL</span>
+        <span id="ins-preview-summary" style="font-size: 11px; color: #475569;"></span>
+      </div>
+      <div class="circular-card-body">
+        <div class="col-table-wrapper" style="max-height: 240px;">
+          <table class="col-table" id="ins-preview-table">
+            <thead id="ins-preview-thead"></thead>
+            <tbody id="ins-preview-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 4: Kết quả SQL Sinh Ra -->
+    <div class="circular-card" style="flex: 1; min-height: 380px; display: flex; flex-direction: column;">
+      <div class="circular-card-header" style="justify-content: space-between; color: #047857;">
+        <span>📤 5. KẾT QUẢ SCRIPT SQL INSERT SINH RA</span>
+        <div class="btn-group">
+          <span id="ins-sql-stats" style="font-size: 12px; font-weight: 700; color: #047857; margin-right: 8px;"></span>
+          <button class="btn-copy" onclick="copyInsertSQL()">📋 Sao Chép SQL</button>
+          <button class="btn-primary" onclick="downloadInsertSQL()">💾 Tải File .sql</button>
+        </div>
+      </div>
+      <div style="flex: 1; display: flex; flex-direction: column;">
+        <textarea id="ins-sql-output" readonly style="flex: 1; width: 100%; min-height: 280px; background: #090E1A; color: #34D399; font-family: monospace; font-size: 12px; padding: 14px; border: none; outline: none; line-height: 1.5; resize: none;" placeholder="Nhấn nút '🚀 Sinh Câu Lệnh INSERT' ở trên để tạo script SQL..."></textarea>
       </div>
     </div>
   </div>
@@ -829,22 +967,31 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
       const btnTranspiler = document.getElementById('nav-btn-transpiler');
       const btnPipeline = document.getElementById('nav-btn-pipeline');
       const btnCircular = document.getElementById('nav-btn-circular');
+      const btnInsertExcel = document.getElementById('nav-btn-insert-excel');
       const viewTranspiler = document.getElementById('view-transpiler');
       const viewPipeline = document.getElementById('view-pipeline');
       const viewCircular = document.getElementById('view-circular');
+      const viewInsertExcel = document.getElementById('view-insert-excel');
 
       btnTranspiler.classList.toggle('active', tab === 'transpiler');
       if (btnPipeline) btnPipeline.classList.toggle('active', tab === 'pipeline');
-      btnCircular.classList.toggle('active', tab === 'circular');
+      if (btnCircular) btnCircular.classList.toggle('active', tab === 'circular');
+      if (btnInsertExcel) btnInsertExcel.classList.toggle('active', tab === 'insert-excel');
 
       viewTranspiler.style.display = tab === 'transpiler' ? 'flex' : 'none';
       if (viewPipeline) viewPipeline.style.display = tab === 'pipeline' ? 'flex' : 'none';
-      viewCircular.style.display = tab === 'circular' ? 'flex' : 'none';
+      if (viewCircular) viewCircular.style.display = tab === 'circular' ? 'flex' : 'none';
+      if (viewInsertExcel) viewInsertExcel.style.display = tab === 'insert-excel' ? 'flex' : 'none';
 
       if (tab === 'pipeline' && (!pipelineSteps || pipelineSteps.length === 0)) {
         loadSamplePipeline();
       } else if (tab === 'circular' && circularColumns.length === 0) {
         loadSampleCircular();
+      } else if (tab === 'insert-excel') {
+        const ddlVal = document.getElementById('ins-ddl-input') ? document.getElementById('ins-ddl-input').value.trim() : '';
+        if (!ddlVal) {
+          loadSampleInsertExcel();
+        }
       }
     }
 
@@ -1975,7 +2122,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
     function onPipeTermCodeChange() {
       const term = document.getElementById('pipe-term-code').value;
       const rerunInput = document.getElementById('pipe-rerun-term');
-      if (rerunInput) {
+      if (rerunInput && rerunInput.value !== '' && ['D', 'M', 'Q', 'Y', 'H'].includes(rerunInput.value.toUpperCase())) {
         rerunInput.value = term;
       }
     }
@@ -2241,14 +2388,15 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       const grpJob = document.getElementById('pipe-grp-job').value.trim() || 'C_PRE_STAT';
       const reportCode = document.getElementById('pipe-report-code').value.trim() || 'c_pre_sao_ke_lending';
       const termCode = document.getElementById('pipe-term-code').value.trim() || 'D';
-      const rerunTerm = document.getElementById('pipe-rerun-term').value.trim() || 'TRUOC_CIC';
+      const rerunTermInput = document.getElementById('pipe-rerun-term').value.trim();
+      const rerunTermSql = rerunTermInput ? `'${escapeSqlStr(rerunTermInput)}'` : 'NULL';
       const isUsed = document.getElementById('pipe-is-used').value.trim() || '1';
       const genDelete = document.getElementById('pipe-gen-delete').checked;
 
       let sql = `-- =========================================================================================\n`;
       sql += `-- SCRIPT TỰ ĐỘNG SINH: TOOL GENT DATA FLOW C_PRE_SOURCE_CODE CIRCULAR - TUANPV\n`;
       sql += `-- BẢNG CẤU HÌNH: prod_gold_ssd.sbv_report.c_pre_source_code\n`;
-      sql += `-- MÃ BÁO CÁO: ${reportCode} | GROUP: ${grpJob} | KỲ HẠN: ${termCode} | KỲ CHẠY LẠI: ${rerunTerm}\n`;
+      sql += `-- MÃ BÁO CÁO: ${reportCode} | GROUP: ${grpJob} | KỲ HẠN: ${termCode} | KỲ CHẠY LẠI: ${rerunTermInput || 'NULL'}\n`;
       sql += `-- SỐ LƯỢNG BƯỚC THỰC THI: ${pipelineSteps.length} | ENGINE: SPARK SQL\n`;
       sql += `-- THỜI GIAN SINH: ${new Date().toLocaleString('vi-VN')}\n`;
       sql += `-- =========================================================================================\n\n`;
@@ -2295,12 +2443,11 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
         sql += `    '${escapeSqlStr(step.description_sql_code)}',\n`;
         sql += `    '${escapeSqlStr(termCode)}',\n`;
         sql += `    ${step.order_id},\n`;
-        sql += `    '${escapeSqlStr(rerunTerm)}',\n`;
+        sql += `    ${rerunTermSql},\n`;
         sql += `    ${isUsed}\n`;
         sql += `)${isLast ? ';\n\n' : ',\n'}`;
       });
 
-      sql += `COMMIT;\n`;
       sql += `-- ======================= HOÀN TẤT SINH CẤU HÌNH CHO ${reportCode} =======================\n`;
 
       document.getElementById('pipe-sql-output').value = sql;
@@ -2353,6 +2500,7 @@ GROUP BY branch_id;`;
     function clearPipelineForm() {
       document.getElementById('pipe-sql-input').value = '';
       document.getElementById('pipe-sql-output').value = '';
+      if (document.getElementById('pipe-rerun-term')) document.getElementById('pipe-rerun-term').value = '';
       pipelineSteps = [];
       renderPipelineSteps();
       document.getElementById('pipe-parse-status').innerText = '';
@@ -2385,14 +2533,481 @@ GROUP BY branch_id;`;
       showToast(`Đã tải file: ${filename}`);
     }
 
+    // ==============================================================
+    // TAB 4: TOOL INSERT TABLE FROM EXCEL LOGIC
+    // ==============================================================
+    let parsedTableInfo = { tableName: '', columns: [] };
+
+    function parseDDL(ddl) {
+      if (!ddl || !ddl.trim()) return { tableName: '', columns: [] };
+      let clean = ddl.replace(/\/\*[\s\S]*?\*\//g, '');
+      clean = clean.split('\n').map(line => {
+        const idx = line.indexOf('--');
+        return idx >= 0 ? line.substring(0, idx) : line;
+      }).join(' ');
+
+      // Extract table name
+      const tblMatch = clean.match(/CREATE\s+(?:EXTERNAL\s+|OR\s+REPLACE\s+|TEMP\s+|TEMPORARY\s+)*TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([`"'\w\.\-]+)/i);
+      let tableName = tblMatch ? tblMatch[1].replace(/[`"']/g, '').trim() : 'target_table';
+
+      // Find outermost parentheses
+      let depth = 0, start = -1, end = -1;
+      for (let i = 0; i < clean.length; i++) {
+        if (clean[i] === '(') {
+          if (depth === 0) start = i;
+          depth++;
+        } else if (clean[i] === ')') {
+          depth--;
+          if (depth === 0) {
+            end = i;
+            break;
+          }
+        }
+      }
+
+      if (start === -1 || end === -1) return { tableName, columns: [] };
+      const inside = clean.substring(start + 1, end);
+
+      // Split by comma at depth 0
+      const rawParts = [];
+      let cur = '';
+      depth = 0;
+      for (let i = 0; i < inside.length; i++) {
+        const ch = inside[i];
+        if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+        if (ch === ',' && depth === 0) {
+          if (cur.trim()) rawParts.push(cur.trim());
+          cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+      if (cur.trim()) rawParts.push(cur.trim());
+
+      const columns = [];
+      const skipKeywords = /^(CONSTRAINT|PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|KEY|INDEX|PARTITIONED\s+BY)\b/i;
+
+      for (let part of rawParts) {
+        part = part.trim();
+        if (!part || skipKeywords.test(part)) continue;
+        const match = part.match(/^\s*[`"']?([a-zA-Z0-9_#$]+)[`"']?\s+([a-zA-Z0-9_]+(?:\s*\([^)]+\))?)/i);
+        if (match) {
+          const colName = match[1];
+          const rawType = match[2].toUpperCase();
+          const baseType = rawType.split('(')[0].trim();
+          let category = 'STRING';
+
+          if (/^(INT|INTEGER|BIGINT|SMALLINT|TINYINT|NUMBER|NUMERIC|DECIMAL|FLOAT|DOUBLE|REAL|MONEY|BYTEINT)$/i.test(baseType)) {
+            category = 'NUMBER';
+          } else if (/^(DATE)$/i.test(baseType)) {
+            category = 'DATE';
+          } else if (/^(TIMESTAMP|DATETIME|TIME)$/i.test(baseType)) {
+            category = 'TIMESTAMP';
+          } else if (/^(BOOLEAN|BOOL|BIT)$/i.test(baseType)) {
+            category = 'BOOLEAN';
+          }
+          columns.push({ name: colName, rawType, category });
+        }
+      }
+      return { tableName, columns };
+    }
+
+    function parseExcelData(text) {
+      if (!text || !text.trim()) return [];
+      const lines = text.trim().split(/\r?\n/);
+      if (lines.length === 0) return [];
+
+      const firstLine = lines[0];
+      let delimiter = '\t';
+      if (firstLine.includes('\t')) {
+        delimiter = '\t';
+      } else if (firstLine.includes(';') && !firstLine.includes(',')) {
+        delimiter = ';';
+      } else if (firstLine.includes(',')) {
+        delimiter = ',';
+      }
+
+      const rows = [];
+      for (let line of lines) {
+        if (!line.trim()) continue;
+        let cells;
+        if (delimiter === ',') {
+          cells = parseCSVLine(line);
+        } else {
+          cells = line.split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
+        }
+        rows.push(cells);
+      }
+      return rows;
+    }
+
+    function parseCSVLine(line) {
+      const result = [];
+      let cur = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuotes && line[i+1] === '"') {
+            cur += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (ch === ',' && !inQuotes) {
+          result.push(cur.trim().replace(/^["']|["']$/g, ''));
+          cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+      result.push(cur.trim().replace(/^["']|["']$/g, ''));
+      return result;
+    }
+
+    function onDDLInputChanged() {
+      const ddl = document.getElementById('ins-ddl-input').value;
+      parsedTableInfo = parseDDL(ddl);
+      const statusEl = document.getElementById('ins-ddl-status');
+      const badgeContainer = document.getElementById('ins-cols-badge-container');
+
+      if (!parsedTableInfo.tableName || parsedTableInfo.columns.length === 0) {
+        statusEl.innerText = "Chưa nhận diện được cột";
+        statusEl.style.color = "#E11D48";
+        badgeContainer.innerHTML = '';
+      } else {
+        statusEl.innerText = `Bảng: ${parsedTableInfo.tableName} (${parsedTableInfo.columns.length} cột)`;
+        statusEl.style.color = "#047857";
+        let html = '';
+        parsedTableInfo.columns.forEach(col => {
+          let badgeClass = 'badge-str';
+          if (col.category === 'NUMBER') badgeClass = 'badge-num';
+          else if (col.category === 'DATE') badgeClass = 'badge-date';
+          else if (col.category === 'TIMESTAMP') badgeClass = 'badge-time';
+          html += `<span class="col-badge ${badgeClass}">${col.name} <small>(${col.rawType})</small></span>`;
+        });
+        badgeContainer.innerHTML = html;
+      }
+      renderExcelPreview();
+    }
+
+    function onExcelDataInputChanged() {
+      const text = document.getElementById('ins-data-input').value;
+      const rows = parseExcelData(text);
+      const statusEl = document.getElementById('ins-data-status');
+      const hasHeader = document.getElementById('ins-has-header').value === '1';
+      const dataRowsCount = hasHeader ? Math.max(0, rows.length - 1) : rows.length;
+      const colsCount = rows.length > 0 ? rows[0].length : 0;
+
+      statusEl.innerText = `${dataRowsCount} dòng dữ liệu (${colsCount} cột)`;
+      renderExcelPreview();
+    }
+
+    function renderExcelPreview() {
+      const previewCard = document.getElementById('ins-preview-card');
+      const thead = document.getElementById('ins-preview-thead');
+      const tbody = document.getElementById('ins-preview-tbody');
+      const summary = document.getElementById('ins-preview-summary');
+
+      const ddlCols = parsedTableInfo.columns;
+      const rows = parseExcelData(document.getElementById('ins-data-input').value);
+      const hasHeader = document.getElementById('ins-has-header').value === '1';
+
+      if (ddlCols.length === 0 || rows.length === 0) {
+        previewCard.style.display = 'none';
+        return;
+      }
+
+      previewCard.style.display = 'block';
+      const excelHeaders = hasHeader ? rows[0] : [];
+      const dataRows = hasHeader ? rows.slice(1) : rows;
+
+      const mapping = getColumnMapping(ddlCols, excelHeaders, hasHeader);
+
+      let thHtml = '<tr><th style="width: 45px; text-align: center;">#</th>';
+      ddlCols.forEach((col, idx) => {
+        const mappedIdx = mapping[col.name];
+        const mappedName = (mappedIdx !== null && mappedIdx !== undefined && excelHeaders[mappedIdx]) ? excelHeaders[mappedIdx] : `Cột Excel #${mappedIdx !== null ? mappedIdx + 1 : '?'}`;
+        thHtml += `<th>
+          <div style="font-weight: 700; color: #0F172A;">${col.name}</div>
+          <div style="font-size: 10px; color: #64748B;">${col.rawType} ➔ <span style="color: #047857;">${mappedName}</span></div>
+        </th>`;
+      });
+      thHtml += '</tr>';
+      thead.innerHTML = thHtml;
+
+      const previewRows = dataRows.slice(0, 5);
+      let tbHtml = '';
+      previewRows.forEach((r, rIdx) => {
+        tbHtml += `<tr><td style="text-align: center; color: #94A3B8; font-weight: 600;">${rIdx + 1}</td>`;
+        ddlCols.forEach(col => {
+          const mappedIdx = mapping[col.name];
+          const val = (mappedIdx !== null && mappedIdx !== undefined && r[mappedIdx] !== undefined) ? r[mappedIdx] : '';
+          tbHtml += `<td style="font-family: monospace; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeSqlStr(val)}">${escapeSqlStr(val) || '<span style="color: #CBD5E1;">NULL</span>'}</td>`;
+        });
+        tbHtml += '</tr>';
+      });
+      tbody.innerHTML = tbHtml;
+      summary.innerText = `Hiển thị ${previewRows.length}/${dataRows.length} dòng dữ liệu mẫu`;
+    }
+
+    function getColumnMapping(ddlCols, excelHeaders, hasHeader) {
+      const mapping = {};
+      if (hasHeader && excelHeaders.length > 0) {
+        const norm = str => str.toLowerCase().replace(/[^a-z0-9_]/g, '');
+        const normHeaders = excelHeaders.map(h => norm(h));
+
+        ddlCols.forEach((col, cIdx) => {
+          const colNorm = norm(col.name);
+          const foundIdx = normHeaders.indexOf(colNorm);
+          if (foundIdx !== -1) {
+            mapping[col.name] = foundIdx;
+          } else {
+            mapping[col.name] = cIdx < excelHeaders.length ? cIdx : null;
+          }
+        });
+      } else {
+        ddlCols.forEach((col, cIdx) => {
+          mapping[col.name] = cIdx;
+        });
+      }
+      return mapping;
+    }
+
+    function formatSqlCell(val, colCategory, dialect, emptyAsNull) {
+      if (val === null || val === undefined) return 'NULL';
+      val = String(val).trim();
+      if (val === '' || val.toUpperCase() === 'NULL') {
+        return emptyAsNull ? 'NULL' : "''";
+      }
+
+      if (colCategory === 'NUMBER') {
+        let clean = val.replace(/[$₫đVNDUSD\s]/gi, '');
+        if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(clean)) {
+          clean = clean.replace(/,/g, '');
+        } else if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(clean)) {
+          clean = clean.replace(/\./g, '').replace(',', '.');
+        } else if (/^-?\d+,\d+$/.test(clean)) {
+          clean = clean.replace(',', '.');
+        }
+        if (!isNaN(Number(clean)) && clean !== '') {
+          return clean;
+        }
+        return emptyAsNull ? 'NULL' : `'${clean.replace(/'/g, "''")}'`;
+      }
+
+      if (colCategory === 'DATE') {
+        let stdDate = val;
+        const dmyMatch = val.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+        if (dmyMatch) {
+          const d = dmyMatch[1].padStart(2, '0');
+          const m = dmyMatch[2].padStart(2, '0');
+          const y = dmyMatch[3];
+          stdDate = `${y}-${m}-${d}`;
+        } else if (/^\d{8}$/.test(val)) {
+          stdDate = `${val.substring(0, 4)}-${val.substring(4, 6)}-${val.substring(6, 8)}`;
+        }
+
+        if (dialect === 'oracle') {
+          return `TO_DATE('${stdDate}', 'YYYY-MM-DD')`;
+        } else if (dialect === 'spark') {
+          return `DATE '${stdDate}'`;
+        } else {
+          return `'${stdDate}'`;
+        }
+      }
+
+      if (colCategory === 'TIMESTAMP') {
+        if (dialect === 'oracle') {
+          return `TO_TIMESTAMP('${val}', 'YYYY-MM-DD HH24:MI:SS')`;
+        } else if (dialect === 'spark') {
+          return `TIMESTAMP '${val}'`;
+        } else {
+          return `'${val}'`;
+        }
+      }
+
+      if (colCategory === 'BOOLEAN') {
+        const lower = val.toLowerCase();
+        if (lower === 'true' || lower === '1' || lower === 't' || lower === 'yes') return 'TRUE';
+        if (lower === 'false' || lower === '0' || lower === 'f' || lower === 'no') return 'FALSE';
+      }
+
+      return `'${val.replace(/'/g, "''")}'`;
+    }
+
+    function generateInsertSQL() {
+      const ddlText = document.getElementById('ins-ddl-input').value;
+      const dataText = document.getElementById('ins-data-input').value;
+
+      parsedTableInfo = parseDDL(ddlText);
+      const ddlCols = parsedTableInfo.columns;
+
+      if (ddlCols.length === 0) {
+        alert("Vui lòng nhập câu lệnh CREATE TABLE hợp lệ trước khi sinh SQL!");
+        document.getElementById('ins-ddl-input').focus();
+        return;
+      }
+
+      const rows = parseExcelData(dataText);
+      if (rows.length === 0) {
+        alert("Vui lòng dán dữ liệu Excel (ít nhất 1 dòng) trước khi sinh SQL!");
+        document.getElementById('ins-data-input').focus();
+        return;
+      }
+
+      const mode = document.getElementById('ins-mode').value;
+      const batchSize = parseInt(document.getElementById('ins-batch-size').value, 10) || 100;
+      const dialect = document.getElementById('ins-dialect').value;
+      const hasHeader = document.getElementById('ins-has-header').value === '1';
+      const emptyAsNull = document.getElementById('ins-empty-as-null').value === '1';
+
+      const excelHeaders = hasHeader ? rows[0] : [];
+      const dataRows = hasHeader ? rows.slice(1) : rows;
+
+      if (dataRows.length === 0) {
+        alert("Không tìm thấy dòng dữ liệu nào ngoài dòng tiêu đề!");
+        return;
+      }
+
+      const mapping = getColumnMapping(ddlCols, excelHeaders, hasHeader);
+      const colNamesList = ddlCols.map(c => c.name).join(', ');
+      const tableName = parsedTableInfo.tableName;
+
+      let sql = `-- =========================================================================================\n`;
+      sql += `-- SCRIPT TỰ ĐỘNG SINH: TOOL INSERT TABLE FROM EXCEL - TUANPV\n`;
+      sql += `-- BẢNG ĐÍCH: ${tableName}\n`;
+      sql += `-- SỐ CỘT: ${ddlCols.length} | TỔNG SỐ DÒNG DỮ LIỆU: ${dataRows.length}\n`;
+      sql += `-- ENGINE SQL: ${dialect.toUpperCase()} | KIỂU SINH: ${mode === 'batch' ? 'BATCH INSERT' : 'SINGLE INSERT'}\n`;
+      sql += `-- THỜI GIAN SINH: ${new Date().toLocaleString('vi-VN')}\n`;
+      sql += `-- =========================================================================================\n\n`;
+
+      let statementCount = 0;
+
+      if (mode === 'single') {
+        dataRows.forEach(r => {
+          const vals = ddlCols.map(col => {
+            const mappedIdx = mapping[col.name];
+            const rawVal = (mappedIdx !== null && mappedIdx !== undefined) ? r[mappedIdx] : null;
+            return formatSqlCell(rawVal, col.category, dialect, emptyAsNull);
+          });
+          sql += `INSERT INTO ${tableName} (${colNamesList}) VALUES (${vals.join(', ')});\n`;
+          statementCount++;
+        });
+      } else {
+        // Batch mode
+        for (let i = 0; i < dataRows.length; i += batchSize) {
+          const chunk = dataRows.slice(i, i + batchSize);
+          sql += `INSERT INTO ${tableName} (\n    ${colNamesList}\n) VALUES\n`;
+          chunk.forEach((r, cIdx) => {
+            const isLast = cIdx === chunk.length - 1;
+            const vals = ddlCols.map(col => {
+              const mappedIdx = mapping[col.name];
+              const rawVal = (mappedIdx !== null && mappedIdx !== undefined) ? r[mappedIdx] : null;
+              return formatSqlCell(rawVal, col.category, dialect, emptyAsNull);
+            });
+            sql += `    (${vals.join(', ')})${isLast ? ';\n\n' : ',\n'}`;
+          });
+          statementCount++;
+        }
+      }
+
+      sql += `-- ======================= HOÀN TẤT SINH DỮ LIỆU INSERT CHO ${tableName} =======================\n`;
+
+      document.getElementById('ins-sql-output').value = sql;
+      document.getElementById('ins-sql-stats').innerText = `Đã sinh ${statementCount} câu lệnh (${dataRows.length} dòng)`;
+      showToast(`Đã sinh thành công SQL cho ${dataRows.length} dòng dữ liệu!`);
+    }
+
+    function loadSampleInsertExcel() {
+      const sampleDDL = `CREATE TABLE prod_silver_ssd.t24.fnc_cic_eod_calc (
+    branch_id VARCHAR(20),
+    customer_cif VARCHAR(50),
+    account_no VARCHAR(50),
+    total_balance DECIMAL(18, 2),
+    created_date DATE,
+    etl_date INT
+) USING parquet;`;
+
+      const sampleData = `branch_id\tcustomer_cif\taccount_no\ttotal_balance\tcreated_date\tetl_date
+VN0010001\tCIF00008899\t0011002233001\t150,000,000.00\t2026-09-21\t20260921
+VN0010002\tCIF00008900\t0011002233002\t285,450,000.50\t2026-09-21\t20260921
+VN0020001\tCIF00009122\t0022003344001\t75,000,000.00\t2026-09-21\t20260921
+VN0020002\tCIF00009123\t0022003344002\t1,200,000,000.00\t2026-09-21\t20260921
+VN0030001\tCIF00009555\t0033004455001\t45,600,000.00\t2026-09-21\t20260921`;
+
+      document.getElementById('ins-ddl-input').value = sampleDDL;
+      document.getElementById('ins-data-input').value = sampleData;
+
+      onDDLInputChanged();
+      onExcelDataInputChanged();
+      generateInsertSQL();
+    }
+
+    function clearInsertExcelForm() {
+      document.getElementById('ins-ddl-input').value = '';
+      document.getElementById('ins-data-input').value = '';
+      document.getElementById('ins-sql-output').value = '';
+      document.getElementById('ins-sql-stats').innerText = '';
+      document.getElementById('ins-cols-badge-container').innerHTML = '';
+      document.getElementById('ins-ddl-status').innerText = 'Chưa có DDL';
+      document.getElementById('ins-ddl-status').style.color = '#047857';
+      document.getElementById('ins-data-status').innerText = '0 dòng';
+      document.getElementById('ins-preview-card').style.display = 'none';
+      parsedTableInfo = { tableName: '', columns: [] };
+      showToast("Đã xóa trắng form Insert Table From Excel!");
+    }
+
+    function copyInsertSQL() {
+      const out = document.getElementById('ins-sql-output').value;
+      if (!out) {
+        alert("Chưa có nội dung SQL để sao chép. Vui lòng nhấn 'Sinh Câu Lệnh INSERT' trước!");
+        return;
+      }
+      navigator.clipboard.writeText(out);
+      showToast("Đã sao chép script SQL INSERT vào Clipboard!");
+    }
+
+    function downloadInsertSQL() {
+      const out = document.getElementById('ins-sql-output').value;
+      if (!out) {
+        alert("Chưa có nội dung SQL để tải về. Vui lòng nhấn 'Sinh Câu Lệnh INSERT' trước!");
+        return;
+      }
+      const tbl = parsedTableInfo.tableName || 'INSERT_DATA';
+      const filename = `INSERT_${tbl.replace(/[^a-zA-Z0-9_]/g, '_')}_${Date.now()}.sql`;
+      const blob = new Blob([out], { type: 'text/sql;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+      showToast(`Đã tải file: ${filename}`);
+    }
+
+    function handleExcelFileUpload(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById('ins-data-input').value = e.target.result;
+        onExcelDataInputChanged();
+        showToast(`Đã nạp file: ${file.name}`);
+      };
+      reader.readAsText(file);
+      event.target.value = '';
+    }
+
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 'Enter') {
         if (currentActiveTab === 'transpiler') {
           convertSQL();
         } else if (currentActiveTab === 'pipeline') {
           generatePipelineSQL();
-        } else {
+        } else if (currentActiveTab === 'circular') {
           generateCircularSQL();
+        } else if (currentActiveTab === 'insert-excel') {
+          generateInsertSQL();
         }
       }
     });
