@@ -564,11 +564,12 @@ class RegexRuleConverter:
         for pattern, replacement in self.rules:
             res = re.sub(pattern, replacement, res)
 
-        # Dọn dẹp AS (val, pos) nếu thiếu table alias
-        res = re.sub(r'AS\s+\(([^)]+)\)', r'AS _t0(\1)', res)
-
-        # Đồng bộ CAST cho các nhánh CASE WHEN khi giữ nguyên định dạng
+        # Xử lý bổ sung cho spark2presto khi giữ nguyên định dạng
         if self.mode == "spark2presto":
+            # Chỉ bổ sung table alias _t0 nếu UNNEST(...) AS (col) bị thiếu table alias trong Presto
+            res = re.sub(r'(?i)(\bUNNEST\s*\([^)]+?\)(?:\s+WITH\s+ORDINALITY)?\s+AS)\s*\(([^)]+)\)', r'\1 _t0(\2)', res)
+
+            # Đồng bộ CAST cho các nhánh CASE WHEN
             def harmonize_case_block(match):
                 block = match.group(0)
                 branches = re.findall(r'(?i)\b(then|else)\s+([^\s]+)', block)

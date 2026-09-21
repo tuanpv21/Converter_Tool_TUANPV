@@ -1276,7 +1276,7 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
           res = res.replace(/LATERAL\s+VIEW\s+(?:OUTER\s+)?POSEXPLODE\s*\(\s*([^)]+?)\s*\)\s*([a-zA-Z0-9_]+)?\s*AS\s+([^,\s]+)\s*,\s*([^\s,;]+)/gis, 'CROSS JOIN UNNEST($1) WITH ORDINALITY AS $2($4, $3)');
         }
         res = res.replace(/LATERAL\s+VIEW\s+(?:OUTER\s+)?EXPLODE\s*\(\s*([^)]+?)\s*\)\s*([a-zA-Z0-9_]+)?\s*AS\s+([^\s,;]+)/gis, 'CROSS JOIN UNNEST($1) AS $2($3)');
-        res = res.replace(/AS\s+\(([^)]+)\)/g, 'AS _t0($1)');
+        res = res.replace(/(\bUNNEST\s*\([^)]+?\)(?:\s+WITH\s+ORDINALITY)?\s+AS)\s*\(([^)]+)\)/gi, '$1 _t0($2)');
         res = res.replace(/\bSTRING\b/gi, 'VARCHAR');
         res = res.replace(/\bcurrent_timestamp\s*\(\s*\)/gi, 'now()');
         res = res.replace(/\blast_day\s*\(/gi, 'last_day_of_month(');
