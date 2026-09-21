@@ -1,4 +1,4 @@
-﻿# 📖 HƯỚNG DẪN SỬ DỤNG BỘ CÔNG CỤ DATA PIPELINE & SQL TOOLKIT
+# 📖 HƯỚNG DẪN SỬ DỤNG BỘ CÔNG CỤ DATA PIPELINE & SQL TOOLKIT
 
 ---
 
@@ -133,8 +133,60 @@ Dùng cho việc khai báo metadata của mẫu biểu báo cáo SBV theo chuẩ
 
 ---
 
-## 5. Một số Lưu ý & Mẹo làm việc hiệu quả
+## 5. Module 4: Tool Insert Table From Excel
+
+Hỗ trợ chuyển đổi nhanh dữ liệu bảng tính từ Excel sang câu lệnh SQL `INSERT INTO` đa nền tảng (Spark, Oracle, Presto, Postgres, MySQL).
+
+### Điểm mạnh:
+- **Tự động đọc DDL `CREATE TABLE`:** Bóc tách tên bảng và danh sách các cột cùng kiểu dữ liệu.
+- **Tự động nhận diện & làm sạch dữ liệu:**
+  - `INT` / `SMALLINT`: Tự động cắt đuôi `.0`/`.00`, bỏ dấu phẩy nghìn (`150,000,000` -> `150000000`), giải mã số khoa học (`1.5E+05` -> `150000`).
+  - `BIGINT`: Xử lý số lớn / timestamp ID không bị tràn hay làm tròn sai.
+  - `VARCHAR`: Tự động bọc nháy `'...'`, escape `'` thành `''` (ví dụ: `Công ty O'Reilly` -> `'Công ty O''Reilly'`), bảo toàn số `0` ở đầu mã CIF/tài khoản (`00112233`).
+  - `DECIMAL`: Làm sạch phân cách nghìn, giữ nguyên phần thập phân.
+  - `DATE` / `TIMESTAMP`: Chuẩn hóa các định dạng ngày phổ biến (`DD/MM/YYYY`, `YYYYMMDD`, `YYYY-MM-DD`).
+- **Chế độ Batch & Single:** Cho phép chia thành các batch nhỏ (mỗi batch 50, 100 dòng) hoặc xuất từng câu lệnh `INSERT` riêng lẻ.
+
+---
+
+## 6. Module 5: Sử dụng qua Python (`gent_config_tools.py`)
+
+Dành cho các bạn muốn viết script tự động hóa trong pipeline / Airflow hoặc học cách viết code Python xử lý dữ liệu và SQL.
+
+### Chạy trực tiếp qua dòng lệnh (CLI / Demo):
+```bash
+python gent_config_tools.py
+```
+
+### Sử dụng làm thư viện trong Code Python:
+```python
+from gent_config_tools import (
+    CircularConfigGenerator, CircularColumn, OrderItem,
+    DataflowPipelineGenerator, PipelineStep,
+    ExcelToSqlInserter
+)
+
+# 1. Sinh cấu hình Thông tư
+cir = CircularConfigGenerator(group_code="C00384", sheet_no="1", group_name="BÁO CÁO BẢO LÃNH")
+cir.add_column(CircularColumn(col_location="A", item_name="STT", source_col="A.STT", data_type="VARCHAR"))
+sql_cir = cir.generate_sql()
+
+# 2. Sinh luồng Pipeline C_PRE_SOURCE_CODE
+pipe = DataflowPipelineGenerator(report_code="c_pre_sao_ke_lending", rerun_term=None)
+pipe.parse_presto_script("DELETE FROM tbl WHERE dt = {{process_date}}; INSERT INTO tbl SELECT * FROM src;")
+sql_pipe = pipe.generate_sql()
+
+# 3. Sinh INSERT từ DDL và dữ liệu Excel / TSV
+inserter = ExcelToSqlInserter(ddl_text="CREATE TABLE test (id INT, name VARCHAR(50));")
+sql_ins = inserter.generate_from_excel_file("data.xlsx")
+# hoặc: sql_ins = inserter.generate_from_tsv_text("id\tname\n1.0\tCông ty O'Reilly\n")
+```
+
+---
+
+## 7. Một số Lưu ý & Mẹo làm việc hiệu quả
 
 1. **Kiểm tra hàm sau khi convert:** Mặc dù bộ chuyển đổi hỗ trợ hầu hết các hàm phổ biến (`date_diff`, `date_add`, `json_extract_scalar`, `unnest`), bạn nên rà soát lại các biểu thức nghiệp vụ phức tạp trong lưới Section 3 trước khi sinh câu lệnh cuối cùng.
 2. **Ký tự đặc biệt trong SQL:** Trình sinh script đã tự động xử lý ký tự nháy đơn `'` bằng cách escape thành `''` để đảm bảo chuỗi SQL trong câu lệnh `INSERT` không bị lỗi cú pháp.
 3. **Biến ngày chạy:** Luôn sử dụng biến chuẩn dạng `{{process_date}}` hoặc `${process_date}` để engine luồng tự động truyền ngày tham số khi chạy hàng ngày/hàng tháng.
+
