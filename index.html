@@ -1687,7 +1687,18 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       tbody.innerHTML = circularColumns.map((col, idx) => {
         const rowDb = col.row_excel > 0 ? col.row_excel - 1 : 0;
         const orgItemCode = `${groupCode}_${col.col_location}`;
-        const decVal = (col.decimal_position !== undefined && col.decimal_position !== null) ? col.decimal_position : (col.data_type === 'NUMBER' ? 0 : '');
+        
+        let decValStr = '0';
+        if (col.decimal_position === null || col.decimal_position === 'NULL' || col.decimal_position === '') {
+          decValStr = 'NULL';
+        } else if (col.decimal_position !== undefined) {
+          decValStr = String(col.decimal_position);
+        } else {
+          decValStr = (col.data_type === 'NUMBER' || col.data_type === 'DOUBLE') ? '0' : 'NULL';
+        }
+
+        const standardDecOptions = ['NULL', '0', '1', '2', '3', '4', '5', '6'];
+        const extraOption = (!standardDecOptions.includes(decValStr)) ? `<option value="${decValStr}" selected>${decValStr}</option>` : '';
 
         return `
           <tr>
@@ -1729,9 +1740,18 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
                 onchange="updateColField(${idx}, 'unit', this.value)" />
             </td>
             <td>
-              <input type="number" class="table-input" value="${decVal}" style="width: 65px; text-align: center; font-weight: 700; color: #2563EB;"
-                placeholder="0 / NULL"
-                onchange="updateColField(${idx}, 'decimal_position', this.value.trim() === '' ? null : parseInt(this.value, 10))" />
+              <select class="table-select" style="width: 75px; text-align: center; font-weight: 700; color: #2563EB;"
+                onchange="updateColField(${idx}, 'decimal_position', this.value === 'NULL' ? null : parseInt(this.value, 10))">
+                <option value="NULL" ${decValStr === 'NULL' ? 'selected' : ''}>NULL</option>
+                <option value="0" ${decValStr === '0' ? 'selected' : ''}>0</option>
+                <option value="1" ${decValStr === '1' ? 'selected' : ''}>1</option>
+                <option value="2" ${decValStr === '2' ? 'selected' : ''}>2</option>
+                <option value="3" ${decValStr === '3' ? 'selected' : ''}>3</option>
+                <option value="4" ${decValStr === '4' ? 'selected' : ''}>4</option>
+                <option value="5" ${decValStr === '5' ? 'selected' : ''}>5</option>
+                <option value="6" ${decValStr === '6' ? 'selected' : ''}>6</option>
+                ${extraOption}
+              </select>
             </td>
             <td style="color: #0F172A; font-weight: 700; font-family: monospace;">
               ${orgItemCode}
@@ -1747,7 +1767,16 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
     function updateColField(index, field, value) {
       if (circularColumns[index]) {
         circularColumns[index][field] = value;
-        if (field === 'col_location' || field === 'row_excel') {
+        if (field === 'data_type') {
+          if (value !== 'NUMBER' && value !== 'DOUBLE') {
+            circularColumns[index].decimal_position = null;
+          } else if (circularColumns[index].decimal_position === null || circularColumns[index].decimal_position === undefined) {
+            circularColumns[index].decimal_position = 0;
+          }
+          renderColumnsTable();
+          return;
+        }
+        if (field === 'col_location' || field === 'row_excel' || field === 'decimal_position') {
           renderColumnsTable();
         }
       }

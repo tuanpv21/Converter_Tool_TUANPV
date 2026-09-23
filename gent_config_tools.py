@@ -103,7 +103,7 @@ class CircularColumn:
     row_excel: int = 1         # Dòng bắt đầu trên Excel (trong DB sẽ lưu = row_excel - 1)
     data_type: str = "NUMBER"  # Kiểu dữ liệu: NUMBER, VARCHAR, DATE,...
     unit: str = "NULL"         # Đơn vị làm tròn (ví dụ: 1000000 cho triệu đồng, hoặc NULL)
-    decimal_position: Optional[int] = 0  # Số chữ số thập phân (dạng int, ví dụ: 0, 2, hoặc None -> NULL)
+    decimal_position: Optional[Union[int, str]] = 0  # Số chữ số thập phân: 0, 2, 4,... hoặc None / 'NULL'
 
 
 @dataclass
@@ -279,7 +279,13 @@ class CircularConfigGenerator:
             org_item_code = f"{self.group_code}_{col.col_location}"
             row_db = col.row_excel - 1 if col.row_excel > 0 else 0
             unit_val = col.unit.strip() if col.unit and col.unit.strip().upper() != "NULL" else "NULL"
-            dec_pos_val = str(col.decimal_position) if col.decimal_position is not None else "NULL"
+            if col.decimal_position is not None and str(col.decimal_position).strip().upper() not in ("NULL", "NONE", ""):
+                try:
+                    dec_pos_val = str(int(col.decimal_position))
+                except (ValueError, TypeError):
+                    dec_pos_val = "NULL"
+            else:
+                dec_pos_val = "NULL"
 
             lines.append(f"INSERT INTO {self.target_schema}C_ITEM_ORG (")
             lines.append("    org_item_code, group_item_code, sbv_org_item_code, symbol, item_type,")
