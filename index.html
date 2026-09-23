@@ -287,7 +287,7 @@
           </div>
           <div class="form-group-inline" style="grid-column: span 6; margin-top: 6px;">
             <label class="field-label">Catalog &amp; Schema Bảng Đích (Tiền tố bảng INSERT &amp; DELETE)</label>
-            <input type="text" id="cir-target-schema" class="field-input" value="prod_gold_ssd.sbv_report." placeholder="VD: prod_gold_ssd.sbv_report." style="font-family: monospace; color: var(--msb-orange-dark); font-weight: 700;" />
+            <input type="text" id="cir-target-schema" class="field-input" value="prod_gold_ssd.sbv_report." placeholder="VD: prod_gold_ssd.sbv_report." style="font-family: monospace; color: var(--msb-orange-dark); font-weight: 700;" oninput="onGroupCodeChange()" />
           </div>
         </div>
       </div>
@@ -338,11 +338,15 @@
             <label class="field-label">Cột STT / Mã Chỉ Tiêu Trong Bảng Nguồn</label>
             <input type="text" id="cir-stt-col" class="field-input" value="A.STT" placeholder="VD: A.STT hoặc A.MA_CHI_TIEU" />
           </div>
+          <div class="form-group-inline" id="box-order-table-custom" style="display: none; grid-column: span 2;">
+            <label class="field-label">Catalog &amp; Tên Bảng Map Chỉ Tiêu ORDER_ID (Bảng gốc)</label>
+            <input type="text" id="cir-order-table" class="field-input" value="prod_gold_ssd.sbv_report.c_report_order_c00384" placeholder="VD: prod_gold_ssd.sbv_report.c_report_order_c00384" style="font-family: monospace; font-weight: 700; color: #047857;" oninput="this.dataset.manual='true'" />
+          </div>
           <div class="form-group-inline" id="box-order-col-name">
             <label class="field-label">Tên Cột ORDER_ID Trực Tiếp</label>
             <input type="text" id="cir-order-col" class="field-input" value="A.ORDER_ID" placeholder="VD: A.ORDER_ID" />
           </div>
-          <div class="form-group-inline" style="grid-column: span 2;">
+          <div class="form-group-inline" style="grid-column: span 3;">
             <label class="field-label">Ghi Chú Khớp ORDER_ID</label>
             <div id="box-order-note" style="font-size: 12px; color: #64748B; padding-top: 6px;">
               💡 <em>Chế độ <strong>Có sẵn cột ORDER_ID</strong>: Lấy trực tiếp từ <code>A.ORDER_ID</code> trong bảng kết quả nguồn, không cần tạo thêm bảng thứ tự.</em>
@@ -441,14 +445,15 @@
             <thead>
               <tr>
                 <th style="width: 40px; text-align: center;">STT</th>
-                <th style="width: 85px;">Cột Excel</th>
-                <th style="width: 85px;">Dòng Excel</th>
-                <th style="width: 70px; text-align: center;">Dòng DB</th>
+                <th style="width: 75px;">Cột Excel</th>
+                <th style="width: 75px;">Dòng Excel</th>
+                <th style="width: 65px; text-align: center;">Dòng DB</th>
                 <th>Mô tả</th>
                 <th>Tên cột bảng đích</th>
-                <th style="width: 110px;">Kiểu DL</th>
-                <th style="width: 110px;">Làm Tròn (unit)</th>
-                <th style="width: 130px;">Mã Cột Sinh Ra</th>
+                <th style="width: 95px;">Kiểu DL</th>
+                <th style="width: 100px;">Làm Tròn (unit)</th>
+                <th style="width: 85px; text-align: center;">Số TP (dec_pos)</th>
+                <th style="width: 110px;">Mã Cột Sinh Ra</th>
                 <th style="width: 45px; text-align: center;">Xóa</th>
               </tr>
             </thead>
@@ -1479,6 +1484,13 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
     let circularOrders = [];
 
     function onGroupCodeChange() {
+      const groupCode = document.getElementById('cir-group-code').value.trim() || 'C00384';
+      const rawSchemaInput = document.getElementById('cir-target-schema') ? document.getElementById('cir-target-schema').value.trim() : 'prod_gold_ssd.sbv_report.';
+      const targetSchema = rawSchemaInput ? (rawSchemaInput.endsWith('.') ? rawSchemaInput : rawSchemaInput + '.') : '';
+      const orderTableInput = document.getElementById('cir-order-table');
+      if (orderTableInput && (!orderTableInput.dataset.manual || orderTableInput.dataset.manual === 'false')) {
+        orderTableInput.value = `${targetSchema}c_report_order_${groupCode.toLowerCase()}`;
+      }
       renderColumnsTable();
       renderOrdersTable();
     }
@@ -1492,22 +1504,26 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       const mode = document.getElementById('cir-order-mode').value;
       const boxOrderCol = document.getElementById('box-order-col-name');
       const boxSttCol = document.getElementById('box-stt-col');
+      const boxOrderTableCustom = document.getElementById('box-order-table-custom');
       const sectionOrderTable = document.getElementById('section-order-table');
       const noteBox = document.getElementById('box-order-note');
 
       if (mode === 'direct_col') {
         if (boxOrderCol) boxOrderCol.style.display = 'flex';
         if (boxSttCol) boxSttCol.style.display = 'none';
+        if (boxOrderTableCustom) boxOrderTableCustom.style.display = 'none';
         if (sectionOrderTable) sectionOrderTable.style.display = 'none';
         if (noteBox) noteBox.innerHTML = '💡 <em>Chế độ <strong>Có sẵn cột ORDER_ID</strong>: Lấy trực tiếp từ cột chỉ định (VD: <code>A.ORDER_ID</code>) trong bảng kết quả, không cần tạo bảng thứ tự.</em>';
       } else if (mode === 'join_subquery') {
         if (boxOrderCol) boxOrderCol.style.display = 'none';
         if (boxSttCol) boxSttCol.style.display = 'flex';
+        if (boxOrderTableCustom) boxOrderTableCustom.style.display = 'flex';
         if (sectionOrderTable) sectionOrderTable.style.display = 'block';
-        if (noteBox) noteBox.innerHTML = '💡 <em>Chế độ <strong>Tạo bảng thứ tự &amp; JOIN</strong>: Tự động sinh DDL/INSERT bảng <code>c_report_order_{mã_bc}</code> và sinh câu lệnh <code>JOIN</code> theo cột STT.</em>';
+        if (noteBox) noteBox.innerHTML = '💡 <em>Chế độ <strong>Tạo bảng thứ tự &amp; JOIN</strong>: Tự động sinh DDL/INSERT bảng thứ tự chỉ tiêu, lấy bảng thứ tự làm <strong>bảng gốc (LEFT JOIN)</strong> để đảm bảo không bị thiếu hàng ngay cả khi chi nhánh/trường không có dữ liệu.</em>';
       } else if (mode === 'case_stt') {
         if (boxOrderCol) boxOrderCol.style.display = 'none';
         if (boxSttCol) boxSttCol.style.display = 'flex';
+        if (boxOrderTableCustom) boxOrderTableCustom.style.display = 'none';
         if (sectionOrderTable) sectionOrderTable.style.display = 'block';
         if (noteBox) noteBox.innerHTML = '💡 <em>Chế độ <strong>CASE WHEN</strong>: Ánh xạ STT sang số thứ tự trực tiếp bằng biểu thức CASE WHEN ngay trong câu SELECT.</em>';
       }
@@ -1623,6 +1639,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       const sourceCol = data.source_col || ('A.COL_' + colLoc);
       const dataType = data.data_type || 'NUMBER';
       const unit = data.unit !== undefined ? data.unit : '1000000';
+      const decimalPos = data.decimal_position !== undefined ? data.decimal_position : (dataType === 'NUMBER' ? 0 : null);
 
       circularColumns.push({
         col_location: colLoc.toUpperCase().trim(),
@@ -1630,7 +1647,8 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
         item_name: itemName,
         source_col: sourceCol,
         data_type: dataType,
-        unit: unit
+        unit: unit,
+        decimal_position: decimalPos
       });
 
       renderColumnsTable();
@@ -1662,24 +1680,25 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       document.getElementById('col-count-badge').innerText = `${circularColumns.length} cột`;
 
       if (circularColumns.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: #94A3B8; padding: 20px;">Chưa có cột nào. Bấm <strong>➕ Thêm Cột</strong> hoặc <strong>📁 Nhập từ Excel</strong> hoặc <strong>📄 Nạp Mẫu Thử</strong>.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: #94A3B8; padding: 20px;">Chưa có cột nào. Bấm <strong>➕ Thêm Cột</strong> hoặc <strong>📁 Nhập từ Excel</strong> hoặc <strong>📄 Nạp Mẫu Thử</strong>.</td></tr>`;
         return;
       }
 
       tbody.innerHTML = circularColumns.map((col, idx) => {
         const rowDb = col.row_excel > 0 ? col.row_excel - 1 : 0;
         const orgItemCode = `${groupCode}_${col.col_location}`;
+        const decVal = (col.decimal_position !== undefined && col.decimal_position !== null) ? col.decimal_position : (col.data_type === 'NUMBER' ? 0 : '');
 
         return `
           <tr>
             <td style="text-align: center; color: #64748B; font-weight: 600;">${idx + 1}</td>
             <td>
               <input type="text" class="table-input" value="${col.col_location}" 
-                style="width: 70px; text-transform: uppercase; font-weight: 700; color: var(--msb-orange-dark);"
+                style="width: 65px; text-transform: uppercase; font-weight: 700; color: var(--msb-orange-dark);"
                 onchange="updateColField(${idx}, 'col_location', this.value.toUpperCase())" />
             </td>
             <td>
-              <input type="number" class="table-input" value="${col.row_excel}" style="width: 75px;"
+              <input type="number" class="table-input" value="${col.row_excel}" style="width: 65px;"
                 onchange="updateColField(${idx}, 'row_excel', parseInt(this.value, 10))" />
             </td>
             <td style="color: #047857; font-weight: 700; font-family: monospace; text-align: center;">
@@ -1705,9 +1724,14 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
               </select>
             </td>
             <td>
-              <input type="text" class="table-input" value="${col.unit}" style="width: 95px;"
+              <input type="text" class="table-input" value="${col.unit}" style="width: 85px;"
                 placeholder="1000000 / NULL"
                 onchange="updateColField(${idx}, 'unit', this.value)" />
+            </td>
+            <td>
+              <input type="number" class="table-input" value="${decVal}" style="width: 65px; text-align: center; font-weight: 700; color: #2563EB;"
+                placeholder="0 / NULL"
+                onchange="updateColField(${idx}, 'decimal_position', this.value.trim() === '' ? null : parseInt(this.value, 10))" />
             </td>
             <td style="color: #0F172A; font-weight: 700; font-family: monospace;">
               ${orgItemCode}
@@ -1752,10 +1776,10 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       loadSampleOrderHierarchy();
 
       circularColumns = [
-        { col_location: 'D', row_excel: 20, item_name: 'GIAO NGAY', source_col: 'A.GIAO_NGAY', data_type: 'NUMBER', unit: '1000000' },
-        { col_location: 'E', row_excel: 20, item_name: 'KY HAN', source_col: 'A.KY_HAN', data_type: 'NUMBER', unit: '1000000' },
-        { col_location: 'F', row_excel: 20, item_name: 'TONG', source_col: 'A.TONG', data_type: 'NUMBER', unit: '1000000' },
-        { col_location: 'G', row_excel: 20, item_name: 'DU NO QUA HAN', source_col: 'A.DU_NO_QUA_HAN', data_type: 'NUMBER', unit: '1000000' }
+        { col_location: 'D', row_excel: 20, item_name: 'GIAO NGAY', source_col: 'A.GIAO_NGAY', data_type: 'NUMBER', unit: '1000000', decimal_position: 0 },
+        { col_location: 'E', row_excel: 20, item_name: 'KY HAN', source_col: 'A.KY_HAN', data_type: 'NUMBER', unit: '1000000', decimal_position: 0 },
+        { col_location: 'F', row_excel: 20, item_name: 'TONG', source_col: 'A.TONG', data_type: 'NUMBER', unit: '1000000', decimal_position: 0 },
+        { col_location: 'G', row_excel: 20, item_name: 'DU NO QUA HAN', source_col: 'A.DU_NO_QUA_HAN', data_type: 'NUMBER', unit: '1000000', decimal_position: 0 }
       ];
 
       renderColumnsTable();
@@ -1830,7 +1854,8 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
                 item_name: headerText,
                 source_col: 'A.COL_' + colLetter,
                 data_type: 'NUMBER',
-                unit: '1000000'
+                unit: '1000000',
+                decimal_position: 0
               });
             }
           }
@@ -1928,25 +1953,38 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
         return;
       }
 
+      const rawOrderTableInput = document.getElementById('cir-order-table') ? document.getElementById('cir-order-table').value.trim() : '';
       const orderTableName = `c_report_order_${groupCode.toLowerCase()}`;
-      const fullOrderTable = `${targetSchema}${orderTableName}`;
+      const defaultOrderTable = `${targetSchema}${orderTableName}`;
+      const fullOrderTable = rawOrderTableInput || defaultOrderTable;
 
       // Xây dựng câu truy vấn dữ liệu theo cơ chế: direct_col / JOIN bảng thứ tự / CASE
       let fromAndJoinExpr = resultTable;
       let orderColExpr = directOrderCol;
+      let finalWhereClause = whereClause;
 
       if (orderMode === 'direct_col') {
         orderColExpr = directOrderCol;
         fromAndJoinExpr = resultTable;
+        finalWhereClause = whereClause;
       } else if (orderMode === 'join_subquery' && circularOrders.length > 0) {
         orderColExpr = 'O.ORDER_ID';
-        fromAndJoinExpr = `${resultTable}\nJOIN ${fullOrderTable} O ON ${sttCol} = O.STT`;
+        // Lấy bảng map chỉ tiêu (fullOrderTable O) làm BẢNG GỐC, LEFT JOIN với bảng kết quả
+        // Điều kiện lọc của bảng kết quả (whereClause) đưa vào điều kiện ON để bảo toàn 100% tất cả các hàng chỉ tiêu của O
+        if (whereClause) {
+          fromAndJoinExpr = `${fullOrderTable} O\nLEFT JOIN ${resultTable} ON O.STT = ${sttCol} AND (${whereClause})`;
+        } else {
+          fromAndJoinExpr = `${fullOrderTable} O\nLEFT JOIN ${resultTable} ON O.STT = ${sttCol}`;
+        }
+        finalWhereClause = ''; // Đã nằm trong mệnh đề ON của LEFT JOIN để bảo toàn bảng gốc O
       } else if (orderMode === 'case_stt' && circularOrders.length > 0) {
         orderColExpr = `CASE ${sttCol}\n`;
         circularOrders.forEach(ord => {
           orderColExpr += `                WHEN '${escapeSqlStr(ord.stt)}' THEN ${ord.order_id}\n`;
         });
         orderColExpr += `                ELSE 999\n            END`;
+        fromAndJoinExpr = resultTable;
+        finalWhereClause = whereClause;
       }
 
       let sql = `-- =========================================================================================\n`;
@@ -1954,7 +1992,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       sql += `-- MÃ BÁO CÁO: ${groupCode} | SHEET: ${sheetNo} (${sbvGroupCode}) | KỲ HẠN: ${termCode} (${termName})\n`;
       sql += `-- CATALOG & SCHEMA ĐÍCH: ${targetSchema || '(Mặc định)'}\n`;
       if (orderMode === 'join_subquery' && circularOrders.length > 0) {
-        sql += `-- BẢNG THỨ TỰ ORDER: ${fullOrderTable}\n`;
+        sql += `-- BẢNG THỨ TỰ ORDER (BẢNG GỐC): ${fullOrderTable}\n`;
       } else if (orderMode === 'direct_col') {
         sql += `-- THỨ TỰ ORDER: Lấy trực tiếp từ cột ${orderColExpr}\n`;
       }
@@ -1964,7 +2002,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
       // 1. TẠO BẢNG THỨ TỰ ORDER NẾU CHỌN CHẾ ĐỘ JOIN VÀ CÓ CHỈ TIÊU
       if (orderMode === 'join_subquery' && circularOrders.length > 0) {
         sql += `-- =========================================================================================\n`;
-        sql += `-- 1. TẠO BẢNG THỨ TỰ CHỈ TIÊU: ${fullOrderTable} (JOIN VỚI BẢNG KẾT QUẢ)\n`;
+        sql += `-- 1. TẠO BẢNG THỨ TỰ CHỈ TIÊU: ${fullOrderTable} (BẢNG GỐC LEFT JOIN KẾT QUẢ)\n`;
         sql += `-- =========================================================================================\n`;
         sql += `DROP TABLE IF EXISTS ${fullOrderTable};\n\n`;
         sql += `CREATE TABLE ${fullOrderTable} (\n`;
@@ -2018,6 +2056,9 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
         const orgItemCode = `${groupCode}_${col.col_location}`;
         const rowDb = col.row_excel > 0 ? col.row_excel - 1 : 0;
         const unitVal = (col.unit && col.unit.trim() !== '' && col.unit.toUpperCase() !== 'NULL') ? col.unit.trim() : 'NULL';
+        const decPosVal = (col.decimal_position !== undefined && col.decimal_position !== null && String(col.decimal_position).trim() !== '' && String(col.decimal_position).toUpperCase() !== 'NULL') 
+                          ? parseInt(col.decimal_position, 10) 
+                          : 'NULL';
 
         sql += `INSERT INTO ${targetSchema}C_ITEM_ORG (\n`;
         sql += `    org_item_code, group_item_code, sbv_org_item_code, symbol, item_type,\n`;
@@ -2028,7 +2069,7 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
         sql += `    '${escapeSqlStr(orgItemCode)}', '${escapeSqlStr(groupCode)}', '${escapeSqlStr(sbvGroupCode)}', NULL, 'DR',\n`;
         sql += `    '${escapeSqlStr(col.item_name)}', NULL, '${escapeSqlStr(col.col_location)}', ${rowDb}, NULL,\n`;
         sql += `    NULL, NULL, 0, '${escapeSqlStr(col.data_type || 'NUMBER')}', ${unitVal},\n`;
-        sql += `    NULL, NULL, CURRENT_DATE, '${escapeSqlStr(userModify)}', 'FORM', NULL\n`;
+        sql += `    NULL, ${decPosVal}, CURRENT_DATE, '${escapeSqlStr(userModify)}', 'FORM', NULL\n`;
         sql += `);\n`;
       });
       sql += `\n\n`;
@@ -2042,8 +2083,8 @@ WHERE date_add(current_date(), -7) <= to_date(log_date, 'yyyy-MM-dd')
         const sourceColExpr = col.source_col || `A.COL_${col.col_location}`;
 
         let rawSql = `SELECT '${orgItemCode}' AS ORG_ITEM_CODE, ${sourceColExpr} AS ITEM_VALUE, ${branchSqlExpr} AS BRANCH_ID, ${orderColExpr} AS ORG_ORDER_ID FROM ${fromAndJoinExpr}`;
-        if (whereClause) {
-          rawSql += ` WHERE ${whereClause}`;
+        if (finalWhereClause) {
+          rawSql += ` WHERE ${finalWhereClause}`;
         }
 
         const escapedSql = escapeSqlStr(rawSql);

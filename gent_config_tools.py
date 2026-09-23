@@ -103,6 +103,7 @@ class CircularColumn:
     row_excel: int = 1         # Dòng bắt đầu trên Excel (trong DB sẽ lưu = row_excel - 1)
     data_type: str = "NUMBER"  # Kiểu dữ liệu: NUMBER, VARCHAR, DATE,...
     unit: str = "NULL"         # Đơn vị làm tròn (ví dụ: 1000000 cho triệu đồng, hoặc NULL)
+    decimal_position: Optional[int] = 0  # Số chữ số thập phân (dạng int, ví dụ: 0, 2, hoặc None -> NULL)
 
 
 @dataclass
@@ -119,9 +120,9 @@ class CircularConfigGenerator:
     """
     Trình sinh mã SQL cấu hình báo cáo Thông tư:
     - Bảng C_GROUP_ITEM: Thông tin chung của mẫu biểu
-    - Bảng C_ITEM_ORG: Cấu hình toạ độ từng cột/dòng trên file Excel template
-    - Bảng C_SOURCE_CODE: Câu lệnh truy vấn SQL đổ dữ liệu vào từng cột
-    - Bảng thứ tự ORDER: c_report_order_{mã_bc} (nếu dùng cơ chế JOIN thứ tự)
+    - Bảng C_ITEM_ORG: Cấu hình toạ độ từng cột/dòng trên file Excel template (hỗ trợ decimal_position)
+    - Bảng C_SOURCE_CODE: Câu lệnh truy vấn SQL đổ dữ liệu vào từng cột (lấy bảng map chỉ tiêu làm gốc LEFT JOIN)
+    - Bảng thứ tự ORDER: Bảng cấu hình map chỉ tiêu (hỗ trợ điền catalog/schema tùy ý)
     """
 
     def __init__(
@@ -137,6 +138,7 @@ class CircularConfigGenerator:
         branch_col: str = "A.BRANCH_ID",
         order_mode: str = "direct_col",  # 'direct_col', 'join_subquery', 'case_stt'
         order_col: str = "A.ORDER_ID",
+        order_table: Optional[str] = None,  # Cho phép điền catalog & schema bảng map chỉ tiêu
         stt_col: str = "A.STT",
         where_clause: str = "A.TRANS_TYPE = 'BUY' AND a.import_date = {{process_date}}",
         user_modify: str = "TUANPV",
@@ -156,6 +158,7 @@ class CircularConfigGenerator:
         self.branch_col = branch_col.strip()
         self.order_mode = order_mode
         self.order_col = order_col.strip()
+        self.order_table = order_table.strip() if order_table and order_table.strip() else None
         self.stt_col = stt_col.strip()
         self.where_clause = where_clause.strip()
         self.user_modify = user_modify.strip()
@@ -186,7 +189,7 @@ class CircularConfigGenerator:
         """
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         order_table_name = f"c_report_order_{self.group_code.lower()}"
-        full_order_table = f"{self.target_schema}{order_table_name}"
+        full_order_table = self.order_table or f"{self.target_schema}{order_table_name}"
 
         # Xác định biểu thức chi nhánh (BRANCH_ID)
         branch_expr = f"'{escape_sql_string(self.branch_col)}'" if self.branch_mode == "total" else self.branch_col
@@ -195,8 +198,14 @@ class CircularConfigGenerator:
 
         # Xác định cơ chế JOIN thứ tự ORDER_ID
         if self.order_mode == "join_subquery":
-            from_join_expr = f"{self.result_table} INNER JOIN {full_order_table} ORD ON {self.stt_col} = ORD.stt"
+            # Lấy bảng map chỉ tiêu làm bảng gốc (LEFT JOIN) để bảo toàn 100% tất cả các hàng chỉ tiêu
+            # ngay cả khi các chi nhánh hoặc trường tính toán không có đủ dữ liệu
+            if self.where_clause:
+                from_join_expr = f"{full_order_table} ORD LEFT JOIN {self.result_table} ON ORD.stt = {self.stt_col} AND ({self.where_clause})"
+            else:
+                from_join_expr = f"{full_order_table} ORD LEFT JOIN {self.result_table} ON ORD.stt = {self.stt_col}"
             order_expr = "ORD.order_id"
+            final_where = ""
         elif self.order_mode == "case_stt":
             from_join_expr = self.result_table
             if self.order_items:
@@ -204,23 +213,27 @@ class CircularConfigGenerator:
                 order_expr = f"CASE {self.stt_col} {case_clauses} ELSE 9999 END"
             else:
                 order_expr = f"CASE WHEN {self.stt_col} = '1' THEN 1 ELSE 999 END"
+            final_where = self.where_clause
         else:
             # direct_col: Có sẵn cột trong bảng kết quả
             from_join_expr = self.result_table
             order_expr = self.order_col
+            final_where = self.where_clause
 
         lines = []
         lines.append("-- =========================================================================================")
         lines.append("-- SCRIPT TỰ ĐỘNG SINH CẤU HÌNH BÁO CÁO (MSB CIRCULAR CONFIG GENERATOR) - TUANPV")
         lines.append(f"-- MÃ BÁO CÁO: {self.group_code} | SHEET: {self.sheet_no} ({self.sbv_group_code}) | KỲ HẠN: {self.term_code} ({self.term_name})")
         lines.append(f"-- CATALOG & SCHEMA ĐÍCH: {self.target_schema or '(Mặc định)'}")
+        if self.order_mode == "join_subquery":
+            lines.append(f"-- BẢNG THỨ TỰ ORDER (BẢNG GỐC): {full_order_table}")
         lines.append(f"-- THỜI GIAN SINH: {now_str}")
         lines.append("-- =========================================================================================\n")
 
         # 1. BẢNG THỨ TỰ NẾU DÙNG JOIN_SUBQUERY
         if self.order_mode == "join_subquery" and self.order_items:
             lines.append("-- =========================================================================================")
-            lines.append(f"-- 1. TẠO BẢNG THỨ TỰ CHỈ TIÊU: {full_order_table} (JOIN VỚI BẢNG KẾT QUẢ)")
+            lines.append(f"-- 1. TẠO BẢNG THỨ TỰ CHỈ TIÊU: {full_order_table} (BẢNG GỐC LEFT JOIN KẾT QUẢ)")
             lines.append("-- =========================================================================================")
             lines.append(f"DROP TABLE IF EXISTS {full_order_table};\n")
             lines.append(f"CREATE TABLE {full_order_table} (")
@@ -266,6 +279,7 @@ class CircularConfigGenerator:
             org_item_code = f"{self.group_code}_{col.col_location}"
             row_db = col.row_excel - 1 if col.row_excel > 0 else 0
             unit_val = col.unit.strip() if col.unit and col.unit.strip().upper() != "NULL" else "NULL"
+            dec_pos_val = str(col.decimal_position) if col.decimal_position is not None else "NULL"
 
             lines.append(f"INSERT INTO {self.target_schema}C_ITEM_ORG (")
             lines.append("    org_item_code, group_item_code, sbv_org_item_code, symbol, item_type,")
@@ -277,7 +291,7 @@ class CircularConfigGenerator:
                 f"    '{escape_sql_string(org_item_code)}', '{escape_sql_string(self.group_code)}', '{escape_sql_string(self.sbv_group_code)}', NULL, 'DR',\n"
                 f"    '{escape_sql_string(col.item_name)}', NULL, '{escape_sql_string(col.col_location)}', {row_db}, NULL,\n"
                 f"    NULL, NULL, 0, '{escape_sql_string(col.data_type)}', {unit_val},\n"
-                f"    NULL, NULL, CURRENT_DATE, '{escape_sql_string(self.user_modify)}', 'FORM', NULL"
+                f"    NULL, {dec_pos_val}, CURRENT_DATE, '{escape_sql_string(self.user_modify)}', 'FORM', NULL"
             )
             lines.append(");")
         lines.append("\n")
@@ -291,8 +305,8 @@ class CircularConfigGenerator:
             source_col_expr = col.source_col if col.source_col else f"A.COL_{col.col_location}"
 
             raw_query = f"SELECT '{org_item_code}' AS ORG_ITEM_CODE, {source_col_expr} AS ITEM_VALUE, {branch_expr} AS BRANCH_ID, {order_expr} AS ORG_ORDER_ID FROM {from_join_expr}"
-            if self.where_clause:
-                raw_query += f" WHERE {self.where_clause}"
+            if final_where:
+                raw_query += f" WHERE {final_where}"
 
             escaped_query = escape_sql_string(raw_query)
 
