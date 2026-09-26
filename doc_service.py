@@ -4,14 +4,17 @@
 doc_service.py: Dịch vụ quét biến động và sinh tài liệu Word (DocxTemplate engine)
 Hỗ trợ:
 - Quét tự động mọi trường Jinja2 {{ var }} (scalars) và bảng biểu lặp {%tr for item in list %} (loops)
+- Tự động chuẩn hóa các thẻ chứa dấu cách / tiếng Việt (ví dụ: {{ nội dung thiết lập }})
 - Nhận dạng tự động kiểu dữ liệu (text thường vs textarea cho đoạn văn bản dài)
 - Tự động chuyển đổi các đoạn có dấu xuống dòng \n thành RichText OpenXML với <w:br/>
 - Cung cấp dữ liệu mẫu chuẩn ngân hàng cho tài liệu kỹ thuật & tài liệu triển khai
 """
 
 import os
+import sys
 import io
 import re
+import unicodedata
 import zipfile
 from docxtpl import DocxTemplate, RichText
 
@@ -19,7 +22,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
-# Bảng nhãn tiếng Việt thân thiện cho các trường biến phổ biến
 FIELD_LABELS_MAP = {
     "system_name": "Tên hệ thống",
     "system_code": "Mã hệ thống",
@@ -56,12 +58,16 @@ FIELD_LABELS_MAP = {
     "noi_dung_tong_quan": "Nội dung tổng quan",
 }
 
+def to_clean_identifier(text: str) -> str:
+    """Chuyển đổi chuỗi tiếng Việt hoặc có dấu cách thành định dạng identifier snake_case hợp lệ cho Jinja2"""
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    text = text.replace('đ', 'd').replace('Đ', 'D')
+    text = re.sub(r'[^a-zA-Z0-9_]+', '_', text).strip('_')
+    return text.lower()
 
 class SmartRichText(RichText):
-    """
-    Kế thừa RichText của docxtpl để tự động chèn ngắt dòng <w:br/> trong OpenXML
-    cho bất kỳ chuỗi văn bản nào chứa ký tự xuống dòng \n hoặc \r.
-    """
+    """RichText tự động chèn <w:br/> khi gặp dấu xuống dòng \n hoặc \r"""
     def add(self, text, **kwargs):
         if isinstance(text, str) and ("\n" in text or "\r" in text):
             lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
@@ -73,19 +79,73 @@ class SmartRichText(RichText):
             return
         super(SmartRichText, self).add(text, **kwargs)
 
+class AutoCleanDocxTemplate(DocxTemplate):
+    """
+    Tự động chuẩn hóa các thẻ Jinja2 chứa dấu cách hoặc tiếng Việt
+    như {{ nội dung thiết lập }} hay {{Quản trị dữ liệu}}
+    thành cú pháp hợp lệ mà Jinja2 hiểu được mà không gây lỗi TemplateSyntaxError.
+    Đồng thời lưu lại nhãn nguyên bản để hiển thị thân thiện trên giao diện Form.
+    """
+    def __init__(self, *args, **kwargs):
+        self.var_labels = {}
+        super().__init__(*args, **kwargs)
 
-def prettify_name(var_name: str) -> str:
-    """Chuyển đổi tên biến mã nguồn thành tên hiển thị tiếng Việt rõ ràng"""
+    def patch_xml(self, src_xml):
+        src_xml = super().patch_xml(src_xml)
+        
+        # 1. Chuẩn hóa thẻ {{ ... }}
+        def fix_tag(match):
+            inner = match.group(1).strip()
+            # Bỏ qua các từ khóa jinja đặc biệt
+            if not any(inner.startswith(kw) for kw in ['for ', 'if ', 'set ', 'include ', 'elif ', 'else', 'endif', 'endfor']):
+                prefix = ''
+                if inner.startswith('r '):
+                    prefix = 'r '
+                    inner = inner[2:].strip()
+                
+                # Nếu là thuộc tính đối tượng: item.thuoc_tinh
+                if '.' in inner:
+                    parts = inner.split('.')
+                    clean_parts = [to_clean_identifier(p) for p in parts]
+                    clean = '.'.join(clean_parts)
+                    return '{{ ' + prefix + clean + ' }}'
+                
+                clean = to_clean_identifier(inner)
+                if clean:
+                    if clean != inner and clean not in self.var_labels:
+                        self.var_labels[clean] = inner
+                    return '{{ ' + prefix + clean + ' }}'
+            return match.group(0)
+
+        src_xml = re.sub(r'\{\{\s*([^{}]+?)\s*\}\}', fix_tag, src_xml)
+
+        # 2. Chuẩn hóa thẻ vòng lặp {% ... %}
+        def fix_directive(match):
+            inner = match.group(1).strip()
+            m_for = re.match(r'^(tr\s+|tc\s+)?for\s+([a-zA-Z_]\w*)\s+in\s+(.+)$', inner)
+            if m_for:
+                prefix = m_for.group(1) or ''
+                item_var = m_for.group(2)
+                raw_list = m_for.group(3).strip()
+                clean_list = to_clean_identifier(raw_list)
+                if clean_list != raw_list and clean_list not in self.var_labels:
+                    self.var_labels[clean_list] = raw_list
+                return f'{{% {prefix}for {item_var} in {clean_list} %}}'
+            return match.group(0)
+
+        src_xml = re.sub(r'\{%\s*(.+?)\s*%\}', fix_directive, src_xml)
+        return src_xml
+
+def prettify_name(var_name: str, original_label: str = None) -> str:
+    if original_label and original_label.strip():
+        return original_label.strip()
     low = var_name.lower().strip()
     if low in FIELD_LABELS_MAP:
         return FIELD_LABELS_MAP[low]
-    # Tự động thay thế gạch dưới và viết hoa chữ cái đầu
     words = var_name.replace("_", " ").strip().split()
     return " ".join(w.capitalize() for w in words) if words else var_name
 
-
 def is_textarea_hint(var_name: str) -> bool:
-    """Dự đoán trường biến có phải là trường văn bản nhiều dòng (textarea) không"""
     low = var_name.lower()
     multiline_keywords = [
         "overview", "desc", "content", "plan", "step", "note", "check", 
@@ -95,12 +155,7 @@ def is_textarea_hint(var_name: str) -> bool:
     ]
     return any(kw in low for kw in multiline_keywords)
 
-
 def _process_data_for_render(data):
-    """
-    Duyệt đệ quy dữ liệu: tự động bọc chuỗi có xuống dòng bằng SmartRichText
-    để Word hiển thị chính xác các đoạn văn bản nhiều dòng.
-    """
     if isinstance(data, dict):
         processed = {}
         for k, v in data.items():
@@ -122,9 +177,7 @@ def _process_data_for_render(data):
         return [_process_data_for_render(item) for item in data]
     return data
 
-
 def list_available_templates():
-    """Liệt kê danh sách tất cả các file mẫu Word có sẵn trong thư mục templates"""
     if not os.path.exists(TEMPLATES_DIR):
         os.makedirs(TEMPLATES_DIR, exist_ok=True)
     res = []
@@ -135,7 +188,6 @@ def list_available_templates():
                 size_kb = round(os.path.getsize(full_path) / 1024, 1)
             except Exception:
                 size_kb = 0.0
-                
             display_name = f.replace("_", " ").replace(".docx", "")
             if "deployment_guide" in f:
                 display_name = "📘 Mẫu Tài Liệu Triển Khai (Deployment Guide)"
@@ -143,7 +195,6 @@ def list_available_templates():
                 display_name = "📙 Mẫu Đặc Tả Kỹ Thuật (Technical Spec)"
             elif "bang_tu_no_dong" in f or "Vi_du" in f:
                 display_name = "📗 Mẫu Bảng Tự Nở Dòng (Table Auto-Expand)"
-                
             res.append({
                 "filename": f,
                 "display_name": display_name,
@@ -151,32 +202,26 @@ def list_available_templates():
             })
     return res
 
-
 def inspect_template_content(file_bytes: bytes) -> dict:
-    """
-    Quét động file Word (.docx):
-    1. Trích xuất tất cả các biến đơn {{ ten_bien }}
-    2. Nhận diện các bảng lặp {%tr for item in danh_sach %} và thuộc tính {{ item.thuoc_tinh }}
-    3. Tự động phân loại trường text / textarea và gán nhãn tiếng Việt
-    """
-    tpl = DocxTemplate(io.BytesIO(file_bytes))
+    tpl = AutoCleanDocxTemplate(io.BytesIO(file_bytes))
     try:
         raw_vars = tpl.get_undeclared_template_variables()
     except Exception:
         raw_vars = set()
 
-    # Đọc toàn bộ nội dung XML trong file zip của docx
+    # Đọc các file XML để tìm kiếm cấu trúc bảng lặp
     xml_texts = []
-    with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
-        for name in z.namelist():
-            if name.endswith(".xml"):
-                raw = z.read(name).decode("utf-8", errors="ignore")
-                text = re.sub(r"<[^>]+>", "", raw)
-                xml_texts.append(text)
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+            for name in z.namelist():
+                if name.endswith(".xml"):
+                    raw = z.read(name).decode("utf-8", errors="ignore")
+                    text = re.sub(r"<[^>]+>", "", raw)
+                    xml_texts.append(text)
+    except Exception:
+        pass
 
     combined_text = "\n".join(xml_texts)
-
-    # Tìm các vòng lặp: {% [tr|tc] for <item_var> in <loop_var> %} ... {% [tr|tc] endfor %}
     loop_pattern = re.compile(
         r"{%\s*(?:tr\s+|tc\s+)?for\s+([a-zA-Z_]\w*)\s+in\s+([a-zA-Z_]\w*)\s*%}(.*?){%\s*(?:tr\s+|tc\s+)?endfor\s*%}",
         re.DOTALL
@@ -198,24 +243,24 @@ def inspect_template_content(file_bytes: bytes) -> dict:
                 seen_props.append(p)
 
         fields = [
-            {"name": prop, "label": prettify_name(prop)}
+            {"name": prop, "label": prettify_name(prop, tpl.var_labels.get(prop))}
             for prop in seen_props
         ]
         loop_fields.append({
             "loop_var": loop_var,
             "item_var": item_var,
-            "label": prettify_name(loop_var),
+            "label": prettify_name(loop_var, tpl.var_labels.get(loop_var)),
             "fields": fields
         })
 
-    # Lọc các biến đơn (scalars)
     scalar_fields = []
     for var in sorted(raw_vars):
         if var in loop_vars or var in item_vars or var == "loop":
             continue
+        orig_label = tpl.var_labels.get(var)
         scalar_fields.append({
             "name": var,
-            "label": prettify_name(var),
+            "label": prettify_name(var, orig_label),
             "type": "textarea" if is_textarea_hint(var) else "text",
             "value": ""
         })
@@ -225,39 +270,33 @@ def inspect_template_content(file_bytes: bytes) -> dict:
         "loop_fields": loop_fields
     }
 
-
 def render_dynamic_template(template_bytes: bytes, data: dict) -> io.BytesIO:
-    """
-    Render dữ liệu vào file Word động:
-    Tự động chuẩn hóa văn bản nhiều dòng và sinh file .docx chuẩn OpenXML
-    """
-    tpl = DocxTemplate(io.BytesIO(template_bytes))
+    tpl = AutoCleanDocxTemplate(io.BytesIO(template_bytes))
     processed_data = _process_data_for_render(data)
-    tpl.render(processed_data)
+    enriched_data = dict(processed_data)
+    for k, v in list(processed_data.items()):
+        clean_k = to_clean_identifier(k)
+        if clean_k not in enriched_data:
+            enriched_data[clean_k] = v
+    tpl.render(enriched_data)
     out = io.BytesIO()
     tpl.save(out)
     out.seek(0)
     return out
 
-
 def render_deployment_document(data: dict) -> io.BytesIO:
-    """Render tài liệu triển khai theo mẫu chuẩn"""
     tpl_path = os.path.join(TEMPLATES_DIR, "template_deployment_guide.docx")
     with open(tpl_path, "rb") as f:
         tpl_bytes = f.read()
     return render_dynamic_template(tpl_bytes, data)
 
-
 def render_technical_document(data: dict) -> io.BytesIO:
-    """Render tài liệu đặc tả kỹ thuật theo mẫu chuẩn"""
     tpl_path = os.path.join(TEMPLATES_DIR, "template_technical_spec.docx")
     with open(tpl_path, "rb") as f:
         tpl_bytes = f.read()
     return render_dynamic_template(tpl_bytes, data)
 
-
 def get_sample_deployment_data() -> dict:
-    """Dữ liệu mẫu cho tài liệu triển khai hệ thống"""
     return {
         "project_name": "Nâng cấp Hệ thống Thanh toán & Chuyển tiền Liên ngân hàng",
         "system_code": "PAYMENT_GW_2026",
@@ -296,9 +335,7 @@ def get_sample_deployment_data() -> dict:
         "backup_plan": "Sao lưu toàn bộ database và snapshot storage trước 22:30 cùng ngày"
     }
 
-
 def get_sample_technical_data() -> dict:
-    """Dữ liệu mẫu cho tài liệu đặc tả kiến trúc kỹ thuật"""
     return {
         "project_name": "Hệ thống Phân tích Dữ liệu Giao dịch Tài chính Đa nguồn",
         "system_code": "DATA_ANALYTICS_PLATFORM",
