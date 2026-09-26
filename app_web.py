@@ -28,10 +28,12 @@ except ImportError:
     from convert_presto_to_spark import convert_sql
 
 try:
-    import doc_service
+    import doc_backend as doc_service
 except ImportError:
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    import doc_service
+    import doc_backend as doc_service
+
+sys.modules['doc_service'] = doc_service
 
 PORT = int(os.environ.get("PORT", 7860))
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "auth.db")
