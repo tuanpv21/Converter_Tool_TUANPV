@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: converter-tool-msb
+    env: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app_web.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.12
+      - key: PORT
+        value: 7860

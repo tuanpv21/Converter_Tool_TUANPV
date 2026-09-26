@@ -165,6 +165,9 @@
         <button id="nav-btn-insert-excel" class="nav-tab" onclick="switchNavTab('insert-excel')">
           📋 Tool Insert Table From Excel
         </button>
+        <button id="nav-btn-docgen" class="nav-tab" onclick="switchNavTab('docgen')">
+          📑 Tool Xuất Tài Liệu (Word)
+        </button>
       </div>
     </div>
 
@@ -759,6 +762,156 @@ WHERE partition_date = '{{process_date}}';"></textarea>
     </div>
   </div>
 
+  <!-- ============================================================== -->
+  <!-- TAB 5: TOOL XUẤT TÀI LIỆU KỸ THUẬT & TRIỂN KHAI (WORD DOCX)       -->
+  <!-- ============================================================== -->
+    <!-- ============================================================== -->
+  <!-- TAB 5: TOOL XUẤT TÀI LIỆU WORD ĐỘNG THEO TEMPLATE BẤT KỲ          -->
+  <!-- ============================================================== -->
+  <div id="view-docgen" class="circular-view" style="display: none; gap: 16px;">
+    <!-- Header Control Bar: Chọn Template & Thao Tác -->
+    <div class="circular-header-bar" style="border-left-color: var(--msb-orange); background: #FFFFFF; flex-direction: column; align-items: stretch; gap: 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-weight: 800; font-size: 15px; color: var(--msb-orange-dark);">
+            📑 TRÌNH XUẤT TÀI LIỆU WORD ĐỘNG THEO TEMPLATE (JINJA2)
+          </span>
+          <span class="badge-orange" id="doc-active-template-badge">Đang tải template...</span>
+        </div>
+
+        <div class="btn-group">
+          <button class="btn-secondary" onclick="loadSampleDynamicData()" style="padding: 6px 12px; font-size: 12px;">
+            🎲 Nạp Mẫu Thử
+          </button>
+          <button class="btn-secondary" onclick="saveDynamicDocDraft()" style="padding: 6px 12px; font-size: 12px;">
+            💾 Lưu Nháp
+          </button>
+          <button class="btn-secondary" onclick="exportDynamicDocJson()" style="padding: 6px 12px; font-size: 12px;">
+            📤 Xuất JSON
+          </button>
+          <label class="btn-secondary" style="cursor: pointer; padding: 6px 12px; font-size: 12px; display: inline-flex; align-items: center;">
+            📥 Nạp JSON
+            <input type="file" id="doc-json-file-input" accept=".json" style="display:none" onchange="importDynamicDocJson(event)">
+          </label>
+          <button class="btn-secondary" onclick="openDocGuideModal()" style="padding: 6px 12px; font-size: 12px; background: #FFF7ED; color: var(--msb-orange-dark); border-color: var(--msb-orange-border);">
+            ❓ Hướng Dẫn Đặt Biến Jinja
+          </button>
+          <button id="btn-export-doc-word" class="btn-primary" onclick="generateWordDocFromWeb()" style="padding: 7px 20px; font-size: 13px; font-weight: 700;">
+            📑 Xuất File Word (.docx)
+          </button>
+        </div>
+      </div>
+
+      <!-- Dòng 2: Dropdown chọn Template và Nút Upload File Mới -->
+      <div style="display: flex; align-items: center; gap: 12px; background: #FFF7ED; padding: 10px 14px; border-radius: 6px; border: 1px solid var(--msb-orange-border); flex-wrap: wrap;">
+        <span style="font-size: 12px; font-weight: 700; color: #9A3412;">CHỌN MẪU TÀI LIỆU:</span>
+        <select id="doc-template-select" class="field-select" onchange="onTemplateSelectionChanged()" style="flex: 1; min-width: 280px; font-weight: 700; color: #0F172A; background: #FFFFFF;">
+          <option value="">Đang tải danh sách file Word mẫu...</option>
+        </select>
+        
+        <label class="btn-primary" style="cursor: pointer; padding: 6px 14px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; background: var(--msb-orange-dark);">
+          📤 Tải Lên File Word Mẫu Mới (.docx)
+          <input type="file" id="doc-upload-template-file" accept=".docx" style="display: none;" onchange="handleTemplateUpload(event)">
+        </label>
+
+        <button class="btn-secondary" onclick="loadTemplatesDropdown()" title="Làm mới danh sách" style="padding: 6px 10px; font-size: 12px;">
+          🔄
+        </button>
+      </div>
+    </div>
+
+    <!-- Thông báo trạng thái phân tích template -->
+    <div id="doc-inspect-status" style="display: none; background: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; padding: 10px 16px; border-radius: 6px; font-size: 13px; font-weight: 600;">
+      ✓ Đã phân tích template thành công
+    </div>
+
+    <!-- FORM NHẬP LIỆU ĐỘNG 100% (ĐƯỢC TỰ ĐỘNG DỰNG TỪ FILE WORD) -->
+    <div id="doc-dynamic-form-container" style="display: flex; flex-direction: column; gap: 16px;">
+      <div style="text-align: center; padding: 40px; color: #64748B; background: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 8px;">
+        ⏳ Đang phân tích các trường biến từ file Word mẫu...
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL HƯỚNG DẪN ĐẶT BIẾN JINJA2 TRONG FILE WORD MẪU -->
+  <div class="modal-overlay" id="web-doc-guide-modal" style="display: none;">
+    <div class="auth-card" style="max-width: 720px; width: 100%; max-height: 85vh; overflow-y: auto; text-align: left;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 14px;">
+        <h3 style="font-size: 16px; font-weight: 800; color: var(--msb-orange-dark);">📖 Hướng Dẫn Đặt Biến Jinja Trong File Word Bất Kỳ</h3>
+        <button class="btn-secondary" style="padding: 2px 8px; font-size: 16px;" onclick="closeDocGuideModal()">&times;</button>
+      </div>
+
+      <div style="font-size: 13px; color: #334155; line-height: 1.6; display: flex; flex-direction: column; gap: 14px;">
+        <div>
+          <strong style="color: var(--msb-orange-dark);">1. Cơ chế hoạt động:</strong>
+          <p style="color: #64748B;">Bạn có thể dùng <b>BẤT KỲ</b> file Word (.docx) nào (tài liệu kỹ thuật, kế hoạch release, biên bản, hợp đồng...). Chỉ cần điền các thẻ biến Jinja2 vào nội dung Word, tool sẽ <b>tự động đọc file và tạo ra form nhập liệu tương ứng 100%</b> trên màn hình!</p>
+        </div>
+
+        <div>
+          <strong style="color: var(--msb-orange-dark);">2. Cách đặt Biến Đơn (Text / Đoạn văn):</strong>
+          <p style="color: #64748B;">Gõ tên biến bọc trong 2 cặp ngoặc nhọn <code>{{ ... }}</code> vào bất kỳ đâu (trang bìa, bảng thông tin, header, footer hoặc trong nội dung):</p>
+          <div style="background: #0F172A; color: #7EE787; font-family: monospace; font-size: 12px; padding: 12px; border-radius: 6px; margin-top: 6px;">
+Tên dự án: {{ ten_du_an }}<br>
+Người lập: {{ nguoi_lap }}<br>
+Ngày cập nhật: {{ ngay_lap }}<br>
+Mục tiêu bài toán: {{ muc_tieu }}<br>
+Kiến trúc tổng thể: {{ kien_truc }}
+          </div>
+          <small style="color: #059669;">💡 <i>Mẹo: Nếu tên biến có chữ 'mota', 'mục tiêu', 'nội dung', 'kien_truc', 'notes'... web sẽ tự động hiển thị ô nhập nhiều dòng (textarea) rất tiện lợi!</i></small>
+        </div>
+
+        <div>
+          <strong style="color: var(--msb-orange-dark);">3. Cách đặt Vòng Lặp cho Bảng (Bảng có số dòng tăng giảm tùy ý):</strong>
+          <p style="color: #64748B;">Để bảng tự động sinh thêm dòng theo số bước bạn nhập trên Web, trong bảng Word bạn thiết kế 4 dòng:</p>
+          <div style="background: #0F172A; color: #7EE787; font-family: monospace; font-size: 12px; padding: 12px; border-radius: 6px; margin-top: 6px;">
+Dòng 1 (Tiêu đề): | STT | Thời gian | Tác vụ thực thi | Người phụ trách | Kết quả mong đợi |<br>
+Dòng 2:          | {%tr for b in danh_sach_buoc %} | (đặt ở ô đầu tiên)<br>
+Dòng 3 (Data):   | {{ loop.index }} | {{ b.thoi_gian }} | {{ b.tac_vu }} | {{ b.nguoi_lam }} | {{ b.ket_qua }} |<br>
+Dòng 4:          | {%tr endfor %} | (đặt ở ô đầu tiên)
+          </div>
+          <small style="color: #059669;">💡 <i>Tool sẽ tự nhận diện <code>danh_sach_buoc</code> là bảng động và sinh ra bảng trên Web với các cột: thoi_gian, tac_vu, nguoi_lam, ket_qua kèm nút ➕ Thêm dòng!</i></small>
+        </div>
+
+        <div>
+          <strong style="color: var(--msb-orange-dark);">4. Sử dụng file Word:</strong>
+          <p style="color: #64748B;">Bạn có thể bấm nút <b>"📤 Tải Lên File Word Mẫu Mới (.docx)"</b> ngay trên thanh công cụ để đưa file vào tool, hoặc copy file vào thư mục <code>templates/</code>.</p>
+        </div>
+      </div>
+
+      <div style="text-align: right; margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 12px;">
+        <button class="btn-primary" onclick="closeDocGuideModal()">Đã Hiểu</button>
+      </div>
+    </div>
+  </div>
+
+        <div>
+          <strong>Bước 3: Gắn vòng lặp cho bảng (Runbook hoặc Danh sách Module)</strong>
+          <p style="color: #64748B;">Để bảng tự động sinh thêm dòng theo số bước bạn nhập trên Web, trong bảng Word bạn thiết kế 4 dòng:</p>
+          <div style="background: #0F172A; color: #7EE787; font-family: monospace; font-size: 12px; padding: 10px; border-radius: 6px; margin-top: 4px;">
+Dòng 1 (Tiêu đề): | STT | Thời gian | Tác vụ | Người làm | Kết quả |<br>
+Dòng 2:          | {%tr for step in deploy_steps %} | (ở ô đầu tiên)<br>
+Dòng 3 (Data):   | {{ loop.index }} | {{ step.time }} | {{ step.action_detail }} | {{ step.executor }} | {{ step.expected_result }} |<br>
+Dòng 4:          | {%tr endfor %} | (ở ô đầu tiên)
+          </div>
+          <small style="color: #059669;"><i>(docxtpl sẽ tự động xóa dòng 2 &amp; 4, chỉ giữ lại các dòng dữ liệu thật được lặp đẹp mắt!)</i></small>
+        </div>
+
+        <div>
+          <strong>Bước 4: Copy đè vào thư mục templates của Tool</strong>
+          <div style="background: #0F172A; color: #F1F5F9; font-family: monospace; font-size: 12px; padding: 10px; border-radius: 6px; margin-top: 4px;">
+templates/template_technical_spec.docx   (Mẫu Tài liệu Kỹ thuật)<br>
+templates/template_deployment_guide.docx (Mẫu Tài liệu Triển khai)
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align: right; margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 12px;">
+        <button class="btn-primary" onclick="closeDocGuideModal()">Đã Hiểu</button>
+      </div>
+    </div>
+  </div>
+
+
   <div id="toast" class="toast">Thông báo</div>
 
   <!-- Python code for Pyodide sqlglot engine -->
@@ -973,6 +1126,7 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
       const btnPipeline = document.getElementById('nav-btn-pipeline');
       const btnCircular = document.getElementById('nav-btn-circular');
       const btnInsertExcel = document.getElementById('nav-btn-insert-excel');
+      const btnDocgen = document.getElementById('nav-btn-docgen');
       const viewTranspiler = document.getElementById('view-transpiler');
       const viewPipeline = document.getElementById('view-pipeline');
       const viewCircular = document.getElementById('view-circular');
@@ -982,11 +1136,14 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
       if (btnPipeline) btnPipeline.classList.toggle('active', tab === 'pipeline');
       if (btnCircular) btnCircular.classList.toggle('active', tab === 'circular');
       if (btnInsertExcel) btnInsertExcel.classList.toggle('active', tab === 'insert-excel');
+      if (btnDocgen) btnDocgen.classList.toggle('active', tab === 'docgen');
 
       viewTranspiler.style.display = tab === 'transpiler' ? 'flex' : 'none';
       if (viewPipeline) viewPipeline.style.display = tab === 'pipeline' ? 'flex' : 'none';
       if (viewCircular) viewCircular.style.display = tab === 'circular' ? 'flex' : 'none';
       if (viewInsertExcel) viewInsertExcel.style.display = tab === 'insert-excel' ? 'flex' : 'none';
+      const viewDocgen = document.getElementById('view-docgen');
+      if (viewDocgen) viewDocgen.style.display = tab === 'docgen' ? 'flex' : 'none';
 
       if (tab === 'pipeline' && (!pipelineSteps || pipelineSteps.length === 0)) {
         loadSamplePipeline();
@@ -997,6 +1154,8 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
         if (!ddlVal) {
           loadSampleInsertExcel();
         }
+      } else if (tab === 'docgen') {
+        initDocGenTab();
       }
     }
 
@@ -3131,6 +3290,533 @@ VN0030001\tCIF00009555\t0033004455001\t45,600,000.00\t2026-09-21\t20260921`;
       event.target.value = '';
     }
 
+        // ==============================================================
+    // UNIVERSAL DYNAMIC DOCGEN ENGINE (ĐỘNG HÓA 100% MỌI TEMPLATE)
+    // ==============================================================
+    let currentTemplateMeta = null; // { filename, scalar_fields, loop_fields }
+    let currentUploadedTemplateBase64 = null; // if uploaded from client
+    let docGenInitialized = false;
+
+    function initDocGenTab() {
+      if (docGenInitialized) return;
+      docGenInitialized = true;
+      loadTemplatesDropdown();
+    }
+
+    async function loadTemplatesDropdown() {
+      const select = document.getElementById('doc-template-select');
+      if (!select) return;
+      try {
+        const res = await fetch('/api/list-templates');
+        const json = await res.json();
+        if (json.status === 'ok' && json.templates) {
+          select.innerHTML = '';
+          json.templates.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.filename;
+            opt.innerText = `${t.display_name} (${t.size_kb} KB)`;
+            select.appendChild(opt);
+          });
+          // Tự động phân tích template đầu tiên
+          if (json.templates.length > 0) {
+            inspectTemplateByName(json.templates[0].filename);
+          }
+        }
+      } catch (err) {
+        console.error("Loi load templates:", err);
+      }
+    }
+
+    function onTemplateSelectionChanged() {
+      const select = document.getElementById('doc-template-select');
+      if (!select || !select.value) return;
+      currentUploadedTemplateBase64 = null;
+      inspectTemplateByName(select.value);
+    }
+
+    async function inspectTemplateByName(tplName) {
+      showInspectLoading(true);
+      try {
+        const res = await fetch('/api/inspect-template', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ template_name: tplName })
+        });
+        const json = await res.json();
+        if (json.status === 'ok') {
+          currentTemplateMeta = json;
+          renderDynamicForm(json);
+          loadDynamicDocDraft();
+          updateTemplateInfoBadge(json);
+        } else {
+          alert('Không thể phân tích template: ' + (json.error || 'Lỗi server'));
+        }
+      } catch (e) {
+        alert('Lỗi kết nối server: ' + e);
+      } finally {
+        showInspectLoading(false);
+      }
+    }
+
+    function handleTemplateUpload(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith('.docx')) {
+        alert('Vui lòng chọn file Word định dạng .docx!');
+        return;
+      }
+
+      showInspectLoading(true);
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        const b64 = e.target.result;
+        currentUploadedTemplateBase64 = b64;
+        try {
+          const res = await fetch('/api/inspect-template', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filename: file.name,
+              base64_data: b64
+            })
+          });
+          const json = await res.json();
+          if (json.status === 'ok') {
+            currentTemplateMeta = json;
+            // Thêm vào dropdown nếu chưa có
+            const select = document.getElementById('doc-template-select');
+            let found = false;
+            Array.from(select.options).forEach(opt => {
+              if (opt.value === json.filename) {
+                opt.selected = true;
+                found = true;
+              }
+            });
+            if (!found) {
+              const newOpt = document.createElement('option');
+              newOpt.value = json.filename;
+              newOpt.innerText = `📄 ${file.name} (Tải lên)`;
+              newOpt.selected = true;
+              select.insertBefore(newOpt, select.firstChild);
+            }
+            renderDynamicForm(json);
+            updateTemplateInfoBadge(json);
+            showToast(`Đã nạp & phân tích file Word: ${file.name}`);
+          } else {
+            alert('Lỗi phân tích file Word: ' + json.error);
+          }
+        } catch (err) {
+          alert('Lỗi upload: ' + err);
+        } finally {
+          showInspectLoading(false);
+        }
+      };
+      reader.readAsDataURL(file);
+      event.target.value = '';
+    }
+
+    function showInspectLoading(loading) {
+      const container = document.getElementById('doc-dynamic-form-container');
+      if (loading && container) {
+        container.innerHTML = `
+          <div style="text-align: center; padding: 40px; color: var(--msb-orange-dark); background: #FFF7ED; border: 1px dashed var(--msb-orange-border); border-radius: 8px;">
+            <div style="font-size: 24px; margin-bottom: 8px;">⏳</div>
+            <strong style="font-size: 14px;">Đang quét toàn bộ biến Jinja2 trong file Word...</strong>
+            <p style="font-size: 12px; color: #9A3412; margin-top: 4px;">Quét Header, Footer, Trang bìa, Bảng biểu và Nội dung</p>
+          </div>
+        `;
+      }
+    }
+
+    function updateTemplateInfoBadge(meta) {
+      const badge = document.getElementById('doc-active-template-badge');
+      if (!badge) return;
+      const scalarsCount = meta.scalar_fields ? meta.scalar_fields.length : 0;
+      const loopsCount = meta.loop_fields ? meta.loop_fields.length : 0;
+      badge.innerText = `${meta.filename} • ${scalarsCount} trường • ${loopsCount} bảng động`;
+    }
+
+    // ==============================================================
+    // RENDER FORM ĐỘNG DỰA TRÊN KẾT QUẢ QUÉT TEMPLATE
+    // ==============================================================
+    function renderDynamicForm(meta) {
+      const container = document.getElementById('doc-dynamic-form-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      // CARD 1: CÁC TRƯỜNG THÔNG TIN ĐƠN (SCALARS)
+      if (meta.scalar_fields && meta.scalar_fields.length > 0) {
+        const card = document.createElement('div');
+        card.className = 'circular-card';
+
+        // Tách các trường ngắn (inputs) và trường dài (textareas) để bố trí layout đẹp mắt
+        const shortFields = meta.scalar_fields.filter(f => f.type !== 'textarea');
+        const longFields = meta.scalar_fields.filter(f => f.type === 'textarea');
+
+        let html = `
+          <div class="circular-card-header" style="justify-content: space-between;">
+            <span>📌 1. CÁC TRƯỜNG THÔNG TIN (TỔNG CỘNG: ${meta.scalar_fields.length} TRƯỜNG BIẾN)</span>
+            <span style="font-size: 11px; color: #64748B;">Tự động phát hiện từ thẻ {{ ten_bien }}</span>
+          </div>
+          <div class="circular-card-body" style="display: flex; flex-direction: column; gap: 14px;">
+        `;
+
+        if (shortFields.length > 0) {
+          html += `<div class="grid-3">`;
+          shortFields.forEach(f => {
+            html += `
+              <div class="form-group-inline">
+                <span class="field-label" style="display: flex; justify-content: space-between;">
+                  <span>${f.label}</span>
+                  <small style="font-family: monospace; color: #9A3412; font-weight: normal;">{{ ${f.name} }}</small>
+                </span>
+                <input type="text" id="dyn_field_${f.name}" class="field-input dynamic-scalar-input" data-var="${f.name}" placeholder="Nhập ${f.label}..." />
+              </div>
+            `;
+          });
+          html += `</div>`;
+        }
+
+        if (longFields.length > 0) {
+          html += `<div class="grid-2">`;
+          longFields.forEach(f => {
+            html += `
+              <div class="form-group-inline">
+                <span class="field-label" style="display: flex; justify-content: space-between;">
+                  <span>${f.label}</span>
+                  <small style="font-family: monospace; color: #9A3412; font-weight: normal;">{{ ${f.name} }}</small>
+                </span>
+                <textarea id="dyn_field_${f.name}" class="field-input dynamic-scalar-input" data-var="${f.name}" style="min-height: 85px; resize: vertical;" placeholder="Nhập ${f.label} (hỗ trợ xuống dòng)..."></textarea>
+              </div>
+            `;
+          });
+          html += `</div>`;
+        }
+
+        html += `</div>`;
+        card.innerHTML = html;
+        container.appendChild(card);
+      }
+
+      // CARDS 2...: CÁC BẢNG LẶP ĐỘNG (LOOP TABLES)
+      if (meta.loop_fields && meta.loop_fields.length > 0) {
+        meta.loop_fields.forEach((loop, lIdx) => {
+          const card = document.createElement('div');
+          card.className = 'circular-card';
+
+          let headersHtml = `<th style="width: 45px; text-align: center;">STT</th>`;
+          loop.fields.forEach(col => {
+            headersHtml += `<th>${col.label} <small style="font-family: monospace; color: #9A3412; font-weight: normal;">{{ ${loop.item_var}.${col.name} }}</small></th>`;
+          });
+          headersHtml += `<th style="width: 50px; text-align: center;">Xóa</th>`;
+
+          card.innerHTML = `
+            <div class="circular-card-header" style="justify-content: space-between;">
+              <span>🧩 ${lIdx + 2}. BẢNG DỮ LIỆU ĐỘNG: ${loop.label.toUpperCase()} (LOOP: {%tr for ${loop.item_var} in ${loop.loop_var} %})</span>
+              <button type="button" class="btn-primary" onclick="addDynamicTableRow('${loop.loop_var}')" style="padding: 4px 12px; font-size: 11px;">
+                ➕ Thêm Dòng
+              </button>
+            </div>
+            <div class="circular-card-body">
+              <div class="col-table-wrapper" style="max-height: 320px;">
+                <table class="col-table" id="dyn-table-${loop.loop_var}">
+                  <thead><tr>${headersHtml}</tr></thead>
+                  <tbody id="dyn-tbody-${loop.loop_var}"></tbody>
+                </table>
+              </div>
+            </div>
+          `;
+          container.appendChild(card);
+          // Tự động thêm 1 dòng mẫu trống
+          addDynamicTableRow(loop.loop_var);
+        });
+      }
+
+      // CARD CUỐI: CẤU HÌNH TÊN FILE & XUẤT WORD
+      const exportCard = document.createElement('div');
+      exportCard.className = 'circular-card';
+      const defaultOutName = (meta.filename || 'Tai_Lieu').replace(/\.[^/.]+$/, "") + '_Export.docx';
+      exportCard.innerHTML = `
+        <div class="circular-card-header" style="color: #047857;">
+          <span>💾 XUẤT TÀI LIỆU WORD (.DOCX) HOÀN CHỈNH</span>
+        </div>
+        <div class="circular-card-body" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+          <div class="form-group-inline" style="flex: 1; min-width: 280px;">
+            <span class="field-label">Tên File Word Tải Về (.docx)</span>
+            <input type="text" id="dyn_output_filename" class="field-input" value="${defaultOutName}" />
+          </div>
+          <div style="display: flex; gap: 10px; align-items: flex-end;">
+            <button class="btn-primary" onclick="generateWordDocFromWeb()" style="padding: 9px 24px; font-size: 14px; font-weight: 700;">
+              🚀 Xuất &amp; Tải File Word Ngay (Ctrl + Enter)
+            </button>
+          </div>
+        </div>
+      `;
+      container.appendChild(exportCard);
+    }
+
+    // Dynamic Table Row Manager for Universal Loops
+    function addDynamicTableRow(loopVar, rowData = {}) {
+      if (!currentTemplateMeta || !currentTemplateMeta.loop_fields) return;
+      const loop = currentTemplateMeta.loop_fields.find(l => l.loop_var === loopVar);
+      if (!loop) return;
+
+      const tbody = document.getElementById(`dyn-tbody-${loopVar}`);
+      if (!tbody) return;
+      const rowCount = tbody.rows.length + 1;
+      const tr = document.createElement('tr');
+      tr.className = `dyn-row-${loopVar}`;
+
+      let cellsHtml = `<td style="text-align: center; vertical-align: middle; font-weight: bold; color: var(--msb-orange-dark);">${rowCount}</td>`;
+      loop.fields.forEach(col => {
+        const val = rowData[col.name] || '';
+        if (col.type === 'textarea') {
+          cellsHtml += `<td><textarea class="table-input dyn-col-input" data-col="${col.name}" style="min-height: 45px; resize: vertical;" placeholder="Nhập ${col.label}...">${val}</textarea></td>`;
+        } else {
+          cellsHtml += `<td><input type="text" class="table-input dyn-col-input" data-col="${col.name}" value="${val}" placeholder="Nhập ${col.label}..." /></td>`;
+        }
+      });
+      cellsHtml += `
+        <td style="text-align: center; vertical-align: middle;">
+          <button type="button" class="btn-row-del" onclick="removeDynamicTableRow(this, '${loopVar}')">✕</button>
+        </td>
+      `;
+
+      tr.innerHTML = cellsHtml;
+      tbody.appendChild(tr);
+      reindexDynamicTable(loopVar);
+    }
+
+    function removeDynamicTableRow(btn, loopVar) {
+      const tr = btn.closest('tr');
+      tr.remove();
+      reindexDynamicTable(loopVar);
+      saveDynamicDocDraft();
+    }
+
+    function reindexDynamicTable(loopVar) {
+      const tbody = document.getElementById(`dyn-tbody-${loopVar}`);
+      if (!tbody) return;
+      Array.from(tbody.rows).forEach((row, idx) => {
+        row.cells[0].innerText = idx + 1;
+      });
+    }
+
+    // ==============================================================
+    // THU THẬP DỮ LIỆU TỪ FORM ĐỘNG
+    // ==============================================================
+    function collectDynamicFormData() {
+      const data = {};
+
+      // 1. Thu thập biến đơn
+      document.querySelectorAll('.dynamic-scalar-input').forEach(input => {
+        const varName = input.getAttribute('data-var');
+        if (varName) {
+          data[varName] = input.value.trim();
+        }
+      });
+
+      // 2. Thu thập các bảng lặp
+      if (currentTemplateMeta && currentTemplateMeta.loop_fields) {
+        currentTemplateMeta.loop_fields.forEach(loop => {
+          const rows = [];
+          document.querySelectorAll(`#dyn-tbody-${loop.loop_var} tr`).forEach(tr => {
+            const rowObj = {};
+            let hasVal = false;
+            tr.querySelectorAll('.dyn-col-input').forEach(input => {
+              const colName = input.getAttribute('data-col');
+              const val = input.value.trim();
+              rowObj[colName] = val;
+              if (val) hasVal = true;
+            });
+            if (hasVal) {
+              rows.push(rowObj);
+            }
+          });
+          data[loop.loop_var] = rows;
+        });
+      }
+
+      return data;
+    }
+
+    function populateDynamicFormData(data) {
+      if (!data) return;
+
+      // 1. Điền biến đơn
+      document.querySelectorAll('.dynamic-scalar-input').forEach(input => {
+        const varName = input.getAttribute('data-var');
+        if (varName && data[varName] !== undefined) {
+          input.value = data[varName];
+        }
+      });
+
+      // 2. Điền các bảng lặp
+      if (currentTemplateMeta && currentTemplateMeta.loop_fields) {
+        currentTemplateMeta.loop_fields.forEach(loop => {
+          const tbody = document.getElementById(`dyn-tbody-${loop.loop_var}`);
+          if (tbody) tbody.innerHTML = '';
+          const rows = data[loop.loop_var];
+          if (rows && rows.length > 0) {
+            rows.forEach(r => addDynamicTableRow(loop.loop_var, r));
+          } else {
+            addDynamicTableRow(loop.loop_var);
+          }
+        });
+      }
+    }
+
+    // ==============================================================
+    // NẠP MẪU THỬ & LƯU TRỮ DRAFT
+    // ==============================================================
+    async function loadSampleDynamicData() {
+      if (!currentTemplateMeta) return;
+      const fn = currentTemplateMeta.filename || '';
+      let type = 'tech';
+      if (fn.includes('deploy') || fn.includes('trien_khai')) {
+        type = 'deploy';
+      }
+
+      try {
+        const res = await fetch(`/api/sample-doc?type=${type}`);
+        const json = await res.json();
+        if (json.status === 'ok') {
+          populateDynamicFormData(json.data);
+          saveDynamicDocDraft();
+          showToast(`Đã nạp dữ liệu mẫu thử thành công!`);
+        }
+      } catch (err) {
+        alert('Không thể nạp mẫu: ' + err);
+      }
+    }
+
+    function saveDynamicDocDraft() {
+      if (!currentTemplateMeta) return;
+      const data = collectDynamicFormData();
+      const storageKey = `msb_draft_${currentTemplateMeta.filename}`;
+      localStorage.setItem(storageKey, JSON.stringify(data));
+      showToast('✓ Đã lưu nháp');
+    }
+
+    function loadDynamicDocDraft() {
+      if (!currentTemplateMeta) return false;
+      const storageKey = `msb_draft_${currentTemplateMeta.filename}`;
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        try {
+          const data = JSON.parse(raw);
+          populateDynamicFormData(data);
+          return true;
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      return false;
+    }
+
+    function exportDynamicDocJson() {
+      if (!currentTemplateMeta) return;
+      const data = collectDynamicFormData();
+      const payload = {
+        template_name: currentTemplateMeta.filename,
+        data: data,
+        exported_at: new Date().toISOString()
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `DocConfig_${currentTemplateMeta.filename}_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Đã xuất cấu hình JSON!');
+    }
+
+    function importDynamicDocJson(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const json = JSON.parse(e.target.result);
+          const data = json.data || json;
+          populateDynamicFormData(data);
+          saveDynamicDocDraft();
+          showToast(`Đã nạp cấu hình từ file JSON: ${file.name}`);
+        } catch (err) {
+          alert('File JSON không hợp lệ: ' + err);
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = '';
+    }
+
+    // ==============================================================
+    // XUẤT FILE WORD (.DOCX) ĐỘNG TỪ BẤT KỲ MẪU NÀO
+    // ==============================================================
+    async function generateWordDocFromWeb() {
+      if (!currentTemplateMeta) {
+        alert('Vui lòng chọn hoặc tải lên một file Word mẫu trước!');
+        return;
+      }
+
+      const btn = document.getElementById('btn-export-doc-word');
+      const origText = btn.innerHTML;
+      btn.innerHTML = '⏳ Đang sinh Word...';
+      btn.disabled = true;
+
+      try {
+        const data = collectDynamicFormData();
+        const outNameInput = document.getElementById('dyn_output_filename');
+        const outputFilename = outNameInput ? outNameInput.value.trim() : 'Tai_Lieu_Export.docx';
+
+        const payload = {
+          template_name: currentTemplateMeta.filename,
+          base64_template: currentUploadedTemplateBase64,
+          data: data,
+          output_filename: outputFilename
+        };
+
+        const res = await fetch('/api/render-dynamic-doc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || err.message || 'Lỗi server');
+        }
+
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = outputFilename.endsWith('.docx') ? outputFilename : outputFilename + '.docx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        showToast('✓ Xuất file Word (.docx) thành công!');
+      } catch (err) {
+        alert('Lỗi xuất Word: ' + err.message);
+      } finally {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+      }
+    }
+
+    function openDocGuideModal() {
+      const modal = document.getElementById('web-doc-guide-modal');
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeDocGuideModal() {
+      const modal = document.getElementById('web-doc-guide-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 'Enter') {
         if (currentActiveTab === 'transpiler') {
@@ -3141,6 +3827,8 @@ VN0030001\tCIF00009555\t0033004455001\t45,600,000.00\t2026-09-21\t20260921`;
           generateCircularSQL();
         } else if (currentActiveTab === 'insert-excel') {
           generateInsertSQL();
+        } else if (currentActiveTab === 'docgen') {
+          generateWordDocFromWeb();
         }
       }
     });

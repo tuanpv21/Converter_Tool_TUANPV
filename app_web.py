@@ -27,6 +27,12 @@ except ImportError:
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     from convert_presto_to_spark import convert_sql
 
+try:
+    import doc_service
+except ImportError:
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    import doc_service
+
 PORT = int(os.environ.get("PORT", 7860))
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "auth.db")
 
@@ -613,6 +619,44 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json(200, {"logged_in": False})
             return
 
+        if self.path == "/api/list-templates":
+            templates_list = doc_service.list_available_templates()
+            self.send_json(200, {"status": "ok", "templates": templates_list})
+            return
+
+        if self.path.startswith("/api/download-template"):
+            import urllib.parse
+            parsed = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(parsed.query)
+            tpl_name = query.get("name", [""])[0]
+            safe_name = os.path.basename(tpl_name)
+            tpl_path = os.path.join(doc_service.TEMPLATES_DIR, safe_name)
+            if safe_name and os.path.exists(tpl_path) and safe_name.lower().endswith(".docx"):
+                with open(tpl_path, "rb") as f:
+                    content = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                self.send_header("Content-Disposition", f'attachment; filename="{safe_name}"')
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+                return
+            else:
+                self.send_json(404, {"status": "error", "error": "Template không tồn tại"})
+                return
+
+        if self.path.startswith("/api/sample-doc"):
+            import urllib.parse
+            parsed = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(parsed.query)
+            doc_type = query.get("type", ["tech"])[0]
+            if doc_type == "deploy":
+                sample_data = doc_service.get_sample_deployment_data()
+            else:
+                sample_data = doc_service.get_sample_technical_data()
+            self.send_json(200, {"status": "ok", "data": sample_data})
+            return
+
         # Trang chính HTML (Tự động tải index.html mới nhất kèm Cache-Busting)
         index_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
         if os.path.exists(index_file):
@@ -669,6 +713,108 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_json(400, {"status": "error", "error": str(e)})
             return
+
+        # 3.1. API Xuất File Word Tài Liệu Kỹ Thuật & Triển Khai (DocGen)
+        if self.path == "/api/generate-doc":
+            try:
+                doc_type = req_data.get("type", "tech")
+                data = req_data.get("data", {})
+                if doc_type == "deploy":
+                    doc_bytes = doc_service.render_deployment_document(data)
+                    prefix = "Tai_Lieu_Trien_Khai"
+                    code = data.get("system_code") or data.get("release_version") or "Release"
+                else:
+                    doc_bytes = doc_service.render_technical_document(data)
+                    prefix = "Tai_Lieu_Ky_Thuat"
+                    code = data.get("system_code") or data.get("version") or "TDD"
+
+                clean_code = "".join(c for c in code if c.isalnum() or c in ("-", "_"))
+                filename = f"{prefix}_{clean_code}.docx"
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.send_header("Content-Length", str(len(doc_bytes.getvalue())))
+                self.end_headers()
+                self.wfile.write(doc_bytes.getvalue())
+                return
+            except Exception as e:
+                self.send_json(500, {"status": "error", "error": str(e)})
+                return
+
+        # 3.2. API Phân tích động các biến trong file Word mẫu (Universal Inspect)
+        if self.path == "/api/inspect-template":
+            try:
+                import base64
+                tpl_name = req_data.get("template_name")
+                b64_data = req_data.get("base64_data")
+                if b64_data:
+                    if "," in b64_data:
+                        b64_data = b64_data.split(",", 1)[1]
+                    raw_bytes = base64.b64decode(b64_data)
+                    filename = req_data.get("filename") or f"custom_template_{int(time.time())}.docx"
+                    safe_filename = "".join(c for c in filename if c.isalnum() or c in ("-", "_", "."))
+                    save_path = os.path.join(doc_service.TEMPLATES_DIR, safe_filename)
+                    with open(save_path, "wb") as f:
+                        f.write(raw_bytes)
+                elif tpl_name:
+                    safe_filename = os.path.basename(tpl_name)
+                    save_path = os.path.join(doc_service.TEMPLATES_DIR, safe_filename)
+                    with open(save_path, "rb") as f:
+                        raw_bytes = f.read()
+                else:
+                    self.send_json(400, {"status": "error", "error": "Thiếu template_name hoặc base64_data"})
+                    return
+
+                inspect_result = doc_service.inspect_template_content(raw_bytes)
+                self.send_json(200, {
+                    "status": "ok",
+                    "filename": safe_filename,
+                    "scalar_fields": inspect_result["scalar_fields"],
+                    "loop_fields": inspect_result["loop_fields"]
+                })
+                return
+            except Exception as e:
+                self.send_json(500, {"status": "error", "error": str(e)})
+                return
+
+        # 3.3. API Render Động Mọi Loại Tài Liệu Word
+        if self.path == "/api/render-dynamic-doc":
+            try:
+                import base64
+                tpl_name = req_data.get("template_name")
+                b64_data = req_data.get("base64_template")
+                data = req_data.get("data", {})
+                output_name = req_data.get("output_filename") or "Tai_Lieu_Xuat.docx"
+
+                if b64_data:
+                    if "," in b64_data:
+                        b64_data = b64_data.split(",", 1)[1]
+                    raw_bytes = base64.b64decode(b64_data)
+                elif tpl_name:
+                    safe_filename = os.path.basename(tpl_name)
+                    save_path = os.path.join(doc_service.TEMPLATES_DIR, safe_filename)
+                    with open(save_path, "rb") as f:
+                        raw_bytes = f.read()
+                else:
+                    self.send_json(400, {"status": "error", "error": "Thiếu template"})
+                    return
+
+                doc_bytes = doc_service.render_dynamic_template(raw_bytes, data)
+                safe_out_name = "".join(c for c in output_name if c.isalnum() or c in ("-", "_", "."))
+                if not safe_out_name.lower().endswith(".docx"):
+                    safe_out_name += ".docx"
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                self.send_header("Content-Disposition", f'attachment; filename="{safe_out_name}"')
+                self.send_header("Content-Length", str(len(doc_bytes.getvalue())))
+                self.end_headers()
+                self.wfile.write(doc_bytes.getvalue())
+                return
+            except Exception as e:
+                self.send_json(500, {"status": "error", "error": str(e)})
+                return
 
         # 4. Yêu cầu đăng nhập cho các API quản trị tài khoản
         user = self.get_authenticated_user()
