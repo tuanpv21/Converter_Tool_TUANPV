@@ -31,7 +31,10 @@ try:
     import doc_backend as doc_service
 except ImportError:
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    import doc_backend as doc_service
+    try:
+        import doc_backend as doc_service
+    except ImportError:
+        import doc_service
 
 sys.modules['doc_service'] = doc_service
 

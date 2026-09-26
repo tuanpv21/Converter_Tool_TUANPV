@@ -884,32 +884,6 @@ Dòng 4:          | {%tr endfor %} | (đặt ở ô đầu tiên)
     </div>
   </div>
 
-        <div>
-          <strong>Bước 3: Gắn vòng lặp cho bảng (Runbook hoặc Danh sách Module)</strong>
-          <p style="color: #64748B;">Để bảng tự động sinh thêm dòng theo số bước bạn nhập trên Web, trong bảng Word bạn thiết kế 4 dòng:</p>
-          <div style="background: #0F172A; color: #7EE787; font-family: monospace; font-size: 12px; padding: 10px; border-radius: 6px; margin-top: 4px;">
-Dòng 1 (Tiêu đề): | STT | Thời gian | Tác vụ | Người làm | Kết quả |<br>
-Dòng 2:          | {%tr for step in deploy_steps %} | (ở ô đầu tiên)<br>
-Dòng 3 (Data):   | {{ loop.index }} | {{ step.time }} | {{ step.action_detail }} | {{ step.executor }} | {{ step.expected_result }} |<br>
-Dòng 4:          | {%tr endfor %} | (ở ô đầu tiên)
-          </div>
-          <small style="color: #059669;"><i>(docxtpl sẽ tự động xóa dòng 2 &amp; 4, chỉ giữ lại các dòng dữ liệu thật được lặp đẹp mắt!)</i></small>
-        </div>
-
-        <div>
-          <strong>Bước 4: Copy đè vào thư mục templates của Tool</strong>
-          <div style="background: #0F172A; color: #F1F5F9; font-family: monospace; font-size: 12px; padding: 10px; border-radius: 6px; margin-top: 4px;">
-templates/template_technical_spec.docx   (Mẫu Tài liệu Kỹ thuật)<br>
-templates/template_deployment_guide.docx (Mẫu Tài liệu Triển khai)
-          </div>
-        </div>
-      </div>
-
-      <div style="text-align: right; margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 12px;">
-        <button class="btn-primary" onclick="closeDocGuideModal()">Đã Hiểu</button>
-      </div>
-    </div>
-  </div>
 
 
   <div id="toast" class="toast">Thông báo</div>
