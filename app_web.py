@@ -41,6 +41,27 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
+def find_template_file(tpl_name: str) -> str:
+    """Tìm file template trong TEMPLATES_DIR bất kể chuẩn Unicode (NFC/NFD) hay khoảng trắng/dấu gạch dưới"""
+    if not tpl_name:
+        return ""
+    safe_name = os.path.basename(tpl_name)
+    direct_path = os.path.join(TEMPLATES_DIR, safe_name)
+    if os.path.exists(direct_path):
+        return direct_path
+
+    def norm_fn(s):
+        s_norm = unicodedata.normalize("NFC", str(s)).lower()
+        return re.sub(r"[\s_\-]+", "", s_norm)
+
+    target = norm_fn(safe_name)
+    if os.path.exists(TEMPLATES_DIR):
+        for fname in os.listdir(TEMPLATES_DIR):
+            if norm_fn(fname) == target:
+                return os.path.join(TEMPLATES_DIR, fname)
+    return ""
+
+
 FIELD_LABELS_MAP = {
     "system_name": "Tên hệ thống",
     "system_code": "Mã hệ thống",
@@ -991,11 +1012,11 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
             parsed = urllib.parse.urlparse(self.path)
             query = urllib.parse.parse_qs(parsed.query)
             tpl_name = query.get("name", [""])[0]
-            safe_name = os.path.basename(tpl_name)
-            tpl_path = os.path.join(doc_service.TEMPLATES_DIR, safe_name)
-            if safe_name and os.path.exists(tpl_path) and safe_name.lower().endswith(".docx"):
+            tpl_path = find_template_file(tpl_name)
+            if tpl_path and os.path.exists(tpl_path) and tpl_path.lower().endswith(".docx"):
                 with open(tpl_path, "rb") as f:
                     content = f.read()
+                safe_name = os.path.basename(tpl_path)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
                 self.send_header("Content-Disposition", make_content_disposition(safe_name))
@@ -1115,13 +1136,19 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
                         b64_data = b64_data.split(",", 1)[1]
                     raw_bytes = base64.b64decode(b64_data)
                     filename = req_data.get("filename") or f"custom_template_{int(time.time())}.docx"
-                    safe_filename = "".join(c for c in filename if c.isalnum() or c in ("-", "_", "."))
+                    safe_filename = os.path.basename(filename)
+                    safe_filename = re.sub(r'[\\/*?:"<>|]', "", safe_filename).strip()
+                    if not safe_filename.lower().endswith(".docx"):
+                        safe_filename += ".docx"
                     save_path = os.path.join(doc_service.TEMPLATES_DIR, safe_filename)
                     with open(save_path, "wb") as f:
                         f.write(raw_bytes)
                 elif tpl_name:
-                    safe_filename = os.path.basename(tpl_name)
-                    save_path = os.path.join(doc_service.TEMPLATES_DIR, safe_filename)
+                    save_path = find_template_file(tpl_name)
+                    if not save_path or not os.path.exists(save_path):
+                        self.send_json(404, {"status": "error", "error": f"Không tìm thấy mẫu template: {tpl_name}"})
+                        return
+                    safe_filename = os.path.basename(save_path)
                     with open(save_path, "rb") as f:
                         raw_bytes = f.read()
                 else:
@@ -1154,8 +1181,10 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
                         b64_data = b64_data.split(",", 1)[1]
                     raw_bytes = base64.b64decode(b64_data)
                 elif tpl_name:
-                    safe_filename = os.path.basename(tpl_name)
-                    save_path = os.path.join(doc_service.TEMPLATES_DIR, safe_filename)
+                    save_path = find_template_file(tpl_name)
+                    if not save_path or not os.path.exists(save_path):
+                        self.send_json(404, {"status": "error", "error": f"Không tìm thấy mẫu template: {tpl_name}"})
+                        return
                     with open(save_path, "rb") as f:
                         raw_bytes = f.read()
                 else:
