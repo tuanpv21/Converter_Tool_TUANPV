@@ -3758,8 +3758,17 @@ VN0030001\tCIF00009555\t0033004455001\t45,600,000.00\t2026-09-21\t20260921`;
         });
 
         if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || err.message || 'Lỗi server');
+          let errMsg = 'Lỗi ' + res.status;
+          try {
+            const err = await res.json();
+            errMsg = err.error || err.message || errMsg;
+          } catch (_) {
+            try {
+              const txt = await res.text();
+              if (txt) errMsg = txt;
+            } catch (e2) {}
+          }
+          throw new Error(errMsg);
         }
 
         const blob = await res.blob();

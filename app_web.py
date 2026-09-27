@@ -31,6 +31,7 @@ except ImportError:
 # DOCX DYNAMIC TEMPLATE ENGINE & PROCESSOR
 # ==========================================
 import unicodedata
+import urllib.parse
 import zipfile
 import re
 import io
@@ -76,6 +77,21 @@ FIELD_LABELS_MAP = {
     "noi_dung_tong_quan": "Nội dung tổng quan",
 }
 
+def make_content_disposition(filename: str) -> str:
+    """Tạo header Content-Disposition chuẩn RFC 6266 hỗ trợ cả ký tự tiếng Việt và ASCII thuần túy"""
+    text = str(filename).replace("đ", "d").replace("Đ", "D")
+    nfkd = unicodedata.normalize("NFKD", text)
+    ascii_text = nfkd.encode("ASCII", "ignore").decode("ASCII")
+    ascii_name = re.sub(r"[^a-zA-Z0-9_\-\.]+", "_", ascii_text).strip("_")
+    if not ascii_name.lower().endswith(".docx"):
+        ascii_name += ".docx"
+    if not ascii_name or ascii_name == ".docx":
+        ascii_name = "Tai_Lieu_Xuat.docx"
+
+    utf8_name = filename if filename.lower().endswith(".docx") else f"{filename}.docx"
+    encoded_name = urllib.parse.quote(utf8_name.encode("utf-8"))
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded_name}'
+
 def to_clean_identifier(text: str) -> str:
     """Chuyển đổi chuỗi tiếng Việt hoặc có dấu cách thành định dạng identifier snake_case hợp lệ cho Jinja2"""
     text = unicodedata.normalize('NFD', text)
@@ -114,14 +130,12 @@ class AutoCleanDocxTemplate(DocxTemplate):
         # 1. Chuẩn hóa thẻ {{ ... }}
         def fix_tag(match):
             inner = match.group(1).strip()
-            # Bỏ qua các từ khóa jinja đặc biệt
             if not any(inner.startswith(kw) for kw in ['for ', 'if ', 'set ', 'include ', 'elif ', 'else', 'endif', 'endfor']):
                 prefix = ''
                 if inner.startswith('r '):
                     prefix = 'r '
                     inner = inner[2:].strip()
                 
-                # Nếu là thuộc tính đối tượng: item.thuoc_tinh
                 if '.' in inner:
                     parts = inner.split('.')
                     clean_parts = [to_clean_identifier(p) for p in parts]
@@ -227,7 +241,6 @@ def inspect_template_content(file_bytes: bytes) -> dict:
     except Exception:
         raw_vars = set()
 
-    # Đọc các file XML để tìm kiếm cấu trúc bảng lặp
     xml_texts = []
     try:
         with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
@@ -376,7 +389,7 @@ def get_sample_technical_data() -> dict:
         ]
     }
 
-# Gán doc_service và doc_backend trỏ vào chính module hiện tại để tương thích hoàn toàn
+# Tự động gán doc_service và doc_backend trỏ vào chính module app_web hiện tại
 doc_service = sys.modules[__name__]
 doc_backend = sys.modules[__name__]
 sys.modules['doc_service'] = sys.modules[__name__]
@@ -985,7 +998,7 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
                     content = f.read()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-                self.send_header("Content-Disposition", f'attachment; filename="{safe_name}"')
+                self.send_header("Content-Disposition", make_content_disposition(safe_name))
                 self.send_header("Content-Length", str(len(content)))
                 self.end_headers()
                 self.wfile.write(content)
@@ -1082,7 +1095,7 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.send_header("Content-Disposition", make_content_disposition(filename))
                 self.send_header("Content-Length", str(len(doc_bytes.getvalue())))
                 self.end_headers()
                 self.wfile.write(doc_bytes.getvalue())
@@ -1150,18 +1163,19 @@ class AuthRequestHandler(http.server.BaseHTTPRequestHandler):
                     return
 
                 doc_bytes = doc_service.render_dynamic_template(raw_bytes, data)
-                safe_out_name = "".join(c for c in output_name if c.isalnum() or c in ("-", "_", "."))
-                if not safe_out_name.lower().endswith(".docx"):
-                    safe_out_name += ".docx"
+                content = doc_bytes.getvalue()
+                disposition = make_content_disposition(output_name)
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-                self.send_header("Content-Disposition", f'attachment; filename="{safe_out_name}"')
-                self.send_header("Content-Length", str(len(doc_bytes.getvalue())))
+                self.send_header("Content-Disposition", disposition)
+                self.send_header("Content-Length", str(len(content)))
                 self.end_headers()
-                self.wfile.write(doc_bytes.getvalue())
+                self.wfile.write(content)
                 return
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 self.send_json(500, {"status": "error", "error": str(e)})
                 return
 
