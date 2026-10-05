@@ -35,13 +35,13 @@ def deploy(token=None, space_name="presto-spark-converter", private=False):
         return False
 
     repo_id = f"{username}/{space_name}"
-    print(f"[*] Dang khoi tao Space: {repo_id} (SDK: Docker)...")
+    print(f"[*] Dang khoi tao Space: {repo_id} (SDK: Static)...")
 
     try:
         api.create_repo(
             repo_id=repo_id,
             repo_type="space",
-            space_sdk="docker",
+            space_sdk="static",
             private=private,
             exist_ok=True
         )
