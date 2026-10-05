@@ -901,13 +901,27 @@ Dòng 4:          | {%tr endfor %} | (đặt ở ô đầu tiên)
           </span>
           <span class="badge-orange" style="background: #E0F2FE; color: #0369A1; border: 1px solid #BAE6FD;" id="lineage-status-badge">⚡ 100% Client-Side Engine</span>
         </div>
+
+        <!-- Chuyển Đổi Chế Độ: Luồng Đơn ⇄ So Sánh Highlight -->
+        <div style="display: inline-flex; background: #F1F5F9; padding: 3px; border-radius: 6px; border: 1px solid #CBD5E1; gap: 4px;">
+          <button id="btn-lineage-mode-single" onclick="setLineageMode('single')" style="padding: 5px 12px; font-size: 12px; border-radius: 4px; background: #0284C7; color: white;">
+            📊 Vẽ Luồng Đơn
+          </button>
+          <button id="btn-lineage-mode-diff" onclick="setLineageMode('diff')" style="padding: 5px 12px; font-size: 12px; border-radius: 4px; background: transparent; color: #475569;">
+            🔀 So Sánh &amp; Highlight Thay Đổi (Diff)
+          </button>
+        </div>
         
-        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <!-- Nhóm Nút Thao Tác Chế Độ Đơn -->
+        <div id="lineage-tools-single" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
           <button class="btn-primary" onclick="generateSqlLineageDiagram()" style="background: #0284C7; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25);">
             🚀 Vẽ Sơ Đồ Luồng (F5 / Run)
           </button>
           <button class="btn-secondary" onclick="syncFromPipelineTab()" title="Lấy các bước từ Tab Pipeline Script sang vẽ sơ đồ">
             📥 Lấy từ Tab Pipeline Script
+          </button>
+          <button class="btn-secondary" onclick="snapshotAsBaseline()" title="Lưu kịch bản hiện tại làm bản gốc để chuyển sang so sánh">
+            📌 Đặt Làm Bản Gốc (Baseline)
           </button>
           
           <div style="display: inline-flex; align-items: center; gap: 4px; background: #FFFFFF; border: 1px solid #CBD5E1; padding: 4px 8px; border-radius: 6px;">
@@ -915,7 +929,7 @@ Dòng 4:          | {%tr endfor %} | (đặt ở ô đầu tiên)
             <select id="lineage-sample-select" onchange="onLineageSampleChanged()" style="background: #FFFFFF; color: #0369A1; border: none; font-size: 12px; font-weight: 700; outline: none; cursor: pointer;">
               <option value="bank_3layer">Mẫu 1: Luồng ETL Ngân Hàng (Raw ➔ Silver ➔ Gold Mart)</option>
               <option value="cte_complex">Mẫu 2: Luồng CTEs Phức Tạp (WITH ... AS)</option>
-              <option value="multi_merge">Mẫu 3: Luồng Đa Bước MERGE & OVERWRITE</option>
+              <option value="multi_merge">Mẫu 3: Luồng Đa Bước MERGE &amp; OVERWRITE</option>
             </select>
           </div>
 
@@ -923,18 +937,39 @@ Dòng 4:          | {%tr endfor %} | (đặt ở ô đầu tiên)
             🗑️ Xóa Trắng
           </button>
         </div>
+
+        <!-- Nhóm Nút Thao Tác Chế Độ So Sánh (Diff Mode) -->
+        <div id="lineage-tools-diff" style="display: none; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <button class="btn-primary" onclick="generatePipelineDiffDiagram()" style="background: #16A34A; box-shadow: 0 2px 6px rgba(22, 163, 74, 0.25);">
+            🚀 So Sánh &amp; Highlight Luồng (Run Diff)
+          </button>
+          <button class="btn-secondary" onclick="loadSampleDiffPipelines()" title="Nạp kịch bản ví dụ so sánh nâng cấp nguồn">
+            📄 Nạp Mẫu So Sánh Thực Tế
+          </button>
+          <button class="btn-secondary" onclick="swapDiffInputs()" title="Đổi chỗ kịch bản Cũ và Mới">
+            ⇆ Đổi Chỗ Cũ ⇄ Mới
+          </button>
+          <button class="btn-secondary" onclick="clearDiffInputs()" title="Xóa trắng cả 2 khung">
+            🗑️ Xóa Trắng Cả Hai
+          </button>
+        </div>
+
       </div>
       <div style="font-size: 12px; color: #64748B;">
-        💡 <b>Cách dùng:</b> Dán script SQL pipeline (chứa nhiều câu lệnh <code>INSERT INTO</code>, <code>CREATE TABLE/VIEW</code>, <code>MERGE</code>, <code>WITH...AS</code>). Tool sẽ tự động bóc tách quan hệ bảng Nguồn ➔ Đích và vẽ sơ đồ luồng dữ liệu trực quan hoàn toàn trên trình duyệt, không cần backend!
+        <span id="lineage-mode-guide-text">
+          💡 <b>Cách dùng:</b> Dán script SQL pipeline (chứa nhiều câu lệnh <code>INSERT INTO</code>, <code>CREATE TABLE/VIEW</code>, <code>MERGE</code>, <code>WITH...AS</code>). Tool sẽ tự động bóc tách quan hệ bảng Nguồn ➔ Đích và vẽ sơ đồ luồng dữ liệu trực quan hoàn toàn trên trình duyệt, không cần backend!
+        </span>
       </div>
     </div>
 
     <!-- Main Workspace: 2 Cột (Trái: Nhập SQL & Cấu Hình | Phải: Canvas Sơ Đồ & Matrix Table) -->
-    <div style="display: grid; grid-template-columns: 420px 1fr; gap: 16px; flex: 1; min-height: 600px;">
+    <div style="display: grid; grid-template-columns: 440px 1fr; gap: 16px; flex: 1; min-height: 600px;">
       
       <!-- Cột Trái: SQL Input & Controls -->
       <div style="display: flex; flex-direction: column; gap: 12px;">
-        <div class="circular-card" style="flex: 1; display: flex; flex-direction: column; margin-bottom: 0;">
+
+        <!-- 1. KHUNG NHẬP LIỆU CHẾ ĐỘ ĐƠN (SINGLE MODE) -->
+        <div id="lineage-input-single-box" class="circular-card" style="flex: 1; display: flex; flex-direction: column; margin-bottom: 0;">
           <div class="circular-card-header" style="justify-content: space-between;">
             <span>📝 1. KỊCH BẢN SQL PIPELINE ĐẦU VÀO</span>
             <span id="lineage-stmt-count-badge" style="font-size: 11px; font-weight: 700; color: #0369A1;">0 câu lệnh</span>
@@ -948,6 +983,31 @@ Dòng 4:          | {%tr endfor %} | (đặt ở ô đầu tiên)
                 📂 Tải file .sql
                 <input type="file" id="lineage-file-upload" accept=".sql,.txt" style="display: none;" onchange="handleLineageFileUpload(event)">
               </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. KHUNG NHẬP LIỆU CHẾ ĐỘ SO SÁNH (DIFF MODE) -->
+        <div id="lineage-input-diff-box" style="display: none; flex-direction: column; gap: 10px; flex: 1;">
+          <!-- Khung Cũ (Before) -->
+          <div class="circular-card" style="margin-bottom: 0;">
+            <div class="circular-card-header" style="justify-content: space-between; background: #FEF2F2; color: #991B1B; border-bottom-color: #FECACA;">
+              <span>📦 1A. SQL PIPELINE CŨ (BẢN GỐC / BEFORE)</span>
+              <button class="btn-secondary" onclick="copyCurrentToOld()" style="padding: 2px 6px; font-size: 10px;">Lấy từ bản đơn</button>
+            </div>
+            <div class="circular-card-body" style="padding: 8px;">
+              <textarea id="lineage-sql-old-input" style="width: 100%; min-height: 140px; font-family: 'Consolas', monospace; font-size: 11px; padding: 8px; border-radius: 6px; border: 1px solid #FECACA; resize: vertical; line-height: 1.4; background: #FFFBFB;" placeholder="Dán script SQL pipeline cũ (phiên bản trước khi chỉnh sửa)..."></textarea>
+            </div>
+          </div>
+
+          <!-- Khung Mới (After) -->
+          <div class="circular-card" style="margin-bottom: 0;">
+            <div class="circular-card-header" style="justify-content: space-between; background: #F0FDF4; color: #166534; border-bottom-color: #BBF7D0;">
+              <span>🚀 1B. SQL PIPELINE MỚI (CHỈNH SỬA / AFTER)</span>
+              <button class="btn-secondary" onclick="copyCurrentToNew()" style="padding: 2px 6px; font-size: 10px;">Lấy từ bản đơn</button>
+            </div>
+            <div class="circular-card-body" style="padding: 8px;">
+              <textarea id="lineage-sql-new-input" style="width: 100%; min-height: 140px; font-family: 'Consolas', monospace; font-size: 11px; padding: 8px; border-radius: 6px; border: 1px solid #BBF7D0; resize: vertical; line-height: 1.4; background: #FBFFFC;" placeholder="Dán script SQL pipeline mới (phiên bản đã thêm/bớt/sửa nguồn)..."></textarea>
             </div>
           </div>
         </div>
@@ -4220,6 +4280,167 @@ VN0030001\tCIF00009555\t0033004455001\t45,600,000.00\t2026-09-21\t20260921`;
       multi_merge: `-- ========================================================\n-- MẪU 3: LUỒNG ĐA BƯỚC MERGE INTO & TẠO BẢNG TẠM STAGING\n-- ========================================================\n\n-- Bước 1: Tạo bảng delta số dư cuối ngày\nCREATE TABLE silver.stg_eod_balance_delta AS\nSELECT account_no, sum(amount) as delta_amt\nFROM raw_t24.fbnk_stmt_entry\nWHERE booking_date = current_date()\nGROUP BY account_no;\n\n-- Bước 2: Đồng bộ số dư tích lũy vào bảng số dư hiện tại\nMERGE INTO silver.dim_account_balance AS tgt\nUSING silver.stg_eod_balance_delta AS src\nON tgt.account_no = src.account_no\nWHEN MATCHED THEN UPDATE SET tgt.current_balance = tgt.current_balance + src.delta_amt\nWHEN NOT MATCHED THEN INSERT (account_no, current_balance) VALUES (src.account_no, src.delta_amt);\n\n-- Bước 3: Xuất báo cáo thanh khoản phục vụ Ban Giám Đốc\nINSERT OVERWRITE TABLE gold.mart_daily_liquidity_report\nSELECT b.account_no, b.current_balance, c.customer_type, c.branch_id\nFROM silver.dim_account_balance b\nJOIN silver.customer_master_daily c ON b.account_no = c.cif_no;`
     };
 
+        let currentLineageMode = 'single';
+
+    const DIFF_SAMPLES = {
+      old_sql: `-- ========================================================
+-- KỊCH BẢN CŨ (BASELINE): Luồng tính báo cáo số dư & KH VIP
+-- ========================================================
+
+-- Bước 1: Tổng hợp giao dịch tài khoản từ Core Banking T24 cũ
+INSERT INTO silver.daily_account_txn
+SELECT account_no, sum(amount) as total_amount, count(1) as txn_count
+FROM raw_t24.fbnk_stmt_entry
+WHERE booking_date = current_date()
+GROUP BY account_no;
+
+-- Bước 2: Ghép với thông tin khách hàng từ CRM cũ
+INSERT INTO gold.mart_vip_customer_balance
+SELECT c.cif_no, c.customer_name, a.total_amount, a.txn_count
+FROM silver.daily_account_txn a
+JOIN raw_crm.customer_info c ON a.account_no = c.primary_acc_no;`,
+
+      new_sql: `-- ========================================================
+-- KỊCH BẢN MỚI (MODIFIED): Nâng cấp sang Lakehouse & Bổ sung Risk Score
+-- ========================================================
+
+-- Bước 1: Thay raw_t24 bằng bronze Lakehouse Kafka stream & lọc status
+INSERT INTO silver.daily_account_txn
+SELECT account_no, sum(amount) as total_amount, count(1) as txn_count
+FROM bronze_lake.kafka_stmt_stream
+WHERE booking_date = current_date() AND status = 'POSTED'
+GROUP BY account_no;
+
+-- Bước 2 [MỚI]: Bổ sung mô hình xếp hạng tín dụng rủi ro ML
+INSERT INTO silver.credit_risk_scoring
+SELECT cif_no, credit_rating, probability_of_default
+FROM data_science.ml_risk_models
+WHERE model_version = 'v2.4';
+
+-- Bước 3: Đổi nguồn sang customer_master_cleansed và thêm Risk Score
+INSERT INTO gold.mart_vip_customer_balance
+SELECT c.cif_no, c.customer_name, a.total_amount, a.txn_count, r.credit_rating
+FROM silver.daily_account_txn a
+JOIN silver.customer_master_cleansed c ON a.account_no = c.primary_acc_no
+LEFT JOIN silver.credit_risk_scoring r ON c.cif_no = r.cif_no;`
+    };
+
+    function setLineageMode(mode) {
+      currentLineageMode = mode;
+      const btnSingle = document.getElementById('btn-lineage-mode-single');
+      const btnDiff = document.getElementById('btn-lineage-mode-diff');
+      const toolsSingle = document.getElementById('lineage-tools-single');
+      const toolsDiff = document.getElementById('lineage-tools-diff');
+      const inputSingleBox = document.getElementById('lineage-input-single-box');
+      const inputDiffBox = document.getElementById('lineage-input-diff-box');
+      const guideText = document.getElementById('lineage-mode-guide-text');
+
+      if (mode === 'single') {
+        if (btnSingle) {
+          btnSingle.style.background = '#0284C7';
+          btnSingle.style.color = '#FFFFFF';
+        }
+        if (btnDiff) {
+          btnDiff.style.background = 'transparent';
+          btnDiff.style.color = '#475569';
+        }
+        if (toolsSingle) toolsSingle.style.display = 'flex';
+        if (toolsDiff) toolsDiff.style.display = 'none';
+        if (inputSingleBox) inputSingleBox.style.display = 'flex';
+        if (inputDiffBox) inputDiffBox.style.display = 'none';
+        if (guideText) {
+          guideText.innerHTML = '💡 <b>Cách dùng:</b> Dán script SQL pipeline (chứa nhiều câu lệnh <code>INSERT INTO</code>, <code>CREATE TABLE/VIEW</code>, <code>MERGE</code>, <code>WITH...AS</code>). Tool sẽ tự động bóc tách quan hệ bảng Nguồn ➔ Đích và vẽ sơ đồ luồng dữ liệu trực quan hoàn toàn trên trình duyệt, không cần backend!';
+        }
+      } else {
+        if (btnSingle) {
+          btnSingle.style.background = 'transparent';
+          btnSingle.style.color = '#475569';
+        }
+        if (btnDiff) {
+          btnDiff.style.background = '#16A34A';
+          btnDiff.style.color = '#FFFFFF';
+        }
+        if (toolsSingle) toolsSingle.style.display = 'none';
+        if (toolsDiff) toolsDiff.style.display = 'flex';
+        if (inputSingleBox) inputSingleBox.style.display = 'none';
+        if (inputDiffBox) inputDiffBox.style.display = 'flex';
+        if (guideText) {
+          guideText.innerHTML = '🔀 <b>Chế độ So Sánh &amp; Highlight Diff:</b> Nhập kịch bản Cũ (Before) và Mới (After). Tool sẽ tự động so sánh &amp; highlight: <b style="color: #16A34A;">🟢 [+Mới]</b>, <b style="color: #DC2626;">🔴 [-Đã bỏ]</b>, <b style="color: #D97706;">🟡 [⚠️Đổi nguồn cấp]</b> và lập Bảng đánh giá tác động chi tiết!';
+        }
+
+        const oldInput = document.getElementById('lineage-sql-old-input');
+        const newInput = document.getElementById('lineage-sql-new-input');
+        if (oldInput && newInput && !oldInput.value.trim() && !newInput.value.trim()) {
+          loadSampleDiffPipelines();
+        }
+      }
+    }
+
+    function snapshotAsBaseline() {
+      const currentSql = document.getElementById('lineage-sql-input')?.value || '';
+      if (!currentSql.trim()) {
+        alert("Vui lòng dán hoặc chọn kịch bản SQL ở chế độ Đơn trước khi chụp làm Bản Gốc!");
+        return;
+      }
+      const oldInput = document.getElementById('lineage-sql-old-input');
+      if (oldInput) oldInput.value = currentSql.trim();
+      setLineageMode('diff');
+      showToast("✓ Đã lưu kịch bản hiện tại làm Bản Gốc (Baseline). Giờ bạn có thể dán bản Mới vào ô 1B!");
+    }
+
+    function copyCurrentToOld() {
+      const currentSql = document.getElementById('lineage-sql-input')?.value || '';
+      const oldInput = document.getElementById('lineage-sql-old-input');
+      if (oldInput) oldInput.value = currentSql;
+      showToast("✓ Đã sao chép kịch bản đơn sang Bản Cũ (Before)!");
+    }
+
+    function copyCurrentToNew() {
+      const currentSql = document.getElementById('lineage-sql-input')?.value || '';
+      const newInput = document.getElementById('lineage-sql-new-input');
+      if (newInput) newInput.value = currentSql;
+      showToast("✓ Đã sao chép kịch bản đơn sang Bản Mới (After)!");
+    }
+
+    function swapDiffInputs() {
+      const oldInput = document.getElementById('lineage-sql-old-input');
+      const newInput = document.getElementById('lineage-sql-new-input');
+      if (oldInput && newInput) {
+        const tmp = oldInput.value;
+        oldInput.value = newInput.value;
+        newInput.value = tmp;
+        showToast("✓ Đã hoán đổi vị trí Bản Cũ ⇄ Bản Mới!");
+        if (oldInput.value.trim() && newInput.value.trim()) {
+          generatePipelineDiffDiagram();
+        }
+      }
+    }
+
+    function clearDiffInputs() {
+      const oldInput = document.getElementById('lineage-sql-old-input');
+      const newInput = document.getElementById('lineage-sql-new-input');
+      if (oldInput) oldInput.value = '';
+      if (newInput) newInput.value = '';
+      document.getElementById('lineage-mermaid-output').innerHTML = `
+        <div style="color: #64748B; font-size: 13px; padding: 40px;">
+          Đã xóa trắng cả 2 khung. Hãy dán SQL Cũ và Mới hoặc nhấn "Nạp Mẫu So Sánh" để phân tích lại!
+        </div>`;
+      document.getElementById('lineage-quick-stats').style.display = 'none';
+      document.getElementById('lineage-matrix-tbody').innerHTML = '<tr><td colspan="5" style="text-align: center; color: #94A3B8; padding: 20px;">Chưa có dữ liệu</td></tr>';
+      document.getElementById('lineage-code-output').value = '';
+      currentMermaidCode = '';
+      currentLineageSvg = '';
+      showToast("Đã xóa trắng cả 2 khung so sánh!");
+    }
+
+    function loadSampleDiffPipelines() {
+      const oldInput = document.getElementById('lineage-sql-old-input');
+      const newInput = document.getElementById('lineage-sql-new-input');
+      if (oldInput) oldInput.value = DIFF_SAMPLES.old_sql;
+      if (newInput) newInput.value = DIFF_SAMPLES.new_sql;
+      generatePipelineDiffDiagram();
+    }
+
     function initLineageTab() {
       const inputEl = document.getElementById('lineage-sql-input');
       if (inputEl && !inputEl.value.trim()) {
@@ -4534,6 +4755,9 @@ VN0030001\tCIF00009555\t0033004455001\t45,600,000.00\t2026-09-21\t20260921`;
     }
 
     async function generateSqlLineageDiagram() {
+      if (currentLineageMode === 'diff') {
+        return generatePipelineDiffDiagram();
+      }
       const inputEl = document.getElementById('lineage-sql-input');
       const sql = inputEl ? inputEl.value.trim() : '';
       if (!sql) {
@@ -4638,8 +4862,21 @@ VN0030001\tCIF00009555\t0033004455001\t45,600,000.00\t2026-09-21\t20260921`;
     }
 
     function renderLineageMatrix(steps) {
+      const table = document.getElementById('lineage-matrix-table');
       const tbody = document.getElementById('lineage-matrix-tbody');
-      if (!tbody) return;
+      if (!table || !tbody) return;
+
+      const thead = table.querySelector('thead');
+      if (thead) {
+        thead.innerHTML = `
+          <tr>
+            <th style="width: 50px; text-align: center;">STT</th>
+            <th style="width: 140px;">Thao Tác (Action)</th>
+            <th style="color: #047857;">Bảng Đích (Target)</th>
+            <th style="color: #0369A1;">Bảng Nguồn Phụ Thuộc (Sources)</th>
+            <th style="color: #7E22CE;">CTEs Sử Dụng</th>
+          </tr>`;
+      }
       if (!steps || steps.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #94A3B8; padding: 20px;">Không có bước nào</td></tr>';
         return;
@@ -4663,6 +4900,433 @@ VN0030001\tCIF00009555\t0033004455001\t45,600,000.00\t2026-09-21\t20260921`;
             <td>${ctesHtml}</td>
           </tr>`;
       });
+      tbody.innerHTML = html;
+    }
+
+    function compareSqlPipelines(oldResult, newResult, options = {}) {
+      const orientation = options.orientation || 'LR';
+      const oldSteps = (oldResult && oldResult.steps) || [];
+      const newSteps = (newResult && newResult.steps) || [];
+
+      // 1. Phân tích Old Pipeline
+      const oldTargets = new Map();
+      const oldSources = new Set();
+      const oldTables = new Set();
+      const oldEdges = new Map();
+
+      oldSteps.forEach(s => {
+        const tgt = (s.target || '').trim();
+        if (!tgt) return;
+        oldTables.add(tgt);
+        if (!oldTargets.has(tgt)) {
+          oldTargets.set(tgt, { actions: new Set(), sources: new Set(), steps: [] });
+        }
+        const tObj = oldTargets.get(tgt);
+        tObj.actions.add(s.action);
+        tObj.steps.push(s);
+
+        (s.sources || []).forEach(src => {
+          const csrc = (src || '').trim();
+          if (!csrc) return;
+          oldSources.add(csrc);
+          oldTables.add(csrc);
+          tObj.sources.add(csrc);
+          const edgeKey = `${csrc}|||${tgt}`;
+          if (!oldEdges.has(edgeKey)) oldEdges.set(edgeKey, new Set());
+          oldEdges.get(edgeKey).add(s.action);
+        });
+      });
+
+      // 2. Phân tích New Pipeline
+      const newTargets = new Map();
+      const newSources = new Set();
+      const newTables = new Set();
+      const newEdges = new Map();
+
+      newSteps.forEach(s => {
+        const tgt = (s.target || '').trim();
+        if (!tgt) return;
+        newTables.add(tgt);
+        if (!newTargets.has(tgt)) {
+          newTargets.set(tgt, { actions: new Set(), sources: new Set(), steps: [] });
+        }
+        const tObj = newTargets.get(tgt);
+        tObj.actions.add(s.action);
+        tObj.steps.push(s);
+
+        (s.sources || []).forEach(src => {
+          const csrc = (src || '').trim();
+          if (!csrc) return;
+          newSources.add(csrc);
+          newTables.add(csrc);
+          tObj.sources.add(csrc);
+          const edgeKey = `${csrc}|||${tgt}`;
+          if (!newEdges.has(edgeKey)) newEdges.set(edgeKey, new Set());
+          newEdges.get(edgeKey).add(s.action);
+        });
+      });
+
+      // 3. Phân loại Nodes (Bảng & CTEs)
+      const allTables = new Set([...oldTables, ...newTables]);
+      const nodeDiffs = new Map();
+
+      allTables.forEach(t => {
+        const inOld = oldTables.has(t);
+        const inNew = newTables.has(t);
+
+        if (inNew && !inOld) {
+          const newTObj = newTargets.get(t);
+          nodeDiffs.set(t, {
+            status: 'added',
+            name: t,
+            actions: newTObj ? Array.from(newTObj.actions) : ['SOURCE'],
+            oldSources: [],
+            newSources: newTObj ? Array.from(newTObj.sources) : [],
+            addedSources: newTObj ? Array.from(newTObj.sources) : [],
+            removedSources: []
+          });
+        } else if (inOld && !inNew) {
+          const oldTObj = oldTargets.get(t);
+          nodeDiffs.set(t, {
+            status: 'removed',
+            name: t,
+            actions: oldTObj ? Array.from(oldTObj.actions) : ['SOURCE (ĐÃ BỎ)'],
+            oldSources: oldTObj ? Array.from(oldTObj.sources) : [],
+            newSources: [],
+            addedSources: [],
+            removedSources: oldTObj ? Array.from(oldTObj.sources) : []
+          });
+        } else {
+          // Xuất hiện ở cả Cũ và Mới
+          const oldTObj = oldTargets.get(t);
+          const newTObj = newTargets.get(t);
+
+          if (oldTObj && newTObj) {
+            const oldSrcList = Array.from(oldTObj.sources);
+            const newSrcList = Array.from(newTObj.sources);
+            const addedSrcs = newSrcList.filter(s => !oldTObj.sources.has(s));
+            const removedSrcs = oldSrcList.filter(s => !newTObj.sources.has(s));
+            const oldActs = Array.from(oldTObj.actions).sort().join(',');
+            const newActs = Array.from(newTObj.actions).sort().join(',');
+
+            if (addedSrcs.length > 0 || removedSrcs.length > 0 || oldActs !== newActs) {
+              nodeDiffs.set(t, {
+                status: 'modified',
+                name: t,
+                actions: Array.from(newTObj.actions),
+                oldSources: oldSrcList,
+                newSources: newSrcList,
+                addedSources: addedSrcs,
+                removedSources: removedSrcs
+              });
+            } else {
+              nodeDiffs.set(t, {
+                status: 'unchanged',
+                name: t,
+                actions: Array.from(newTObj.actions),
+                oldSources: oldSrcList,
+                newSources: newSrcList,
+                addedSources: [],
+                removedSources: []
+              });
+            }
+          } else {
+            nodeDiffs.set(t, {
+              status: 'unchanged',
+              name: t,
+              actions: ['SOURCE'],
+              oldSources: [],
+              newSources: [],
+              addedSources: [],
+              removedSources: []
+            });
+          }
+        }
+      });
+
+      // 4. Phân loại Edges (Data Flows)
+      const allEdgeKeys = new Set([...oldEdges.keys(), ...newEdges.keys()]);
+      const edgeDiffs = [];
+
+      allEdgeKeys.forEach(k => {
+        const [src, tgt] = k.split('|||');
+        const inOld = oldEdges.has(k);
+        const inNew = newEdges.has(k);
+
+        if (inNew && !inOld) {
+          const act = Array.from(newEdges.get(k))[0] || 'FLOW';
+          edgeDiffs.push({
+            status: 'added',
+            src,
+            tgt,
+            action: act,
+            line: `${sanitizeMermaidId(src)} == "[+ Mới: ${act}]" ==> ${sanitizeMermaidId(tgt)}`
+          });
+        } else if (inOld && !inNew) {
+          const act = Array.from(oldEdges.get(k))[0] || 'FLOW';
+          edgeDiffs.push({
+            status: 'removed',
+            src,
+            tgt,
+            action: act,
+            line: `${sanitizeMermaidId(src)} -. "[- Đã bỏ: ${act}]" .-> ${sanitizeMermaidId(tgt)}`
+          });
+        } else {
+          const act = Array.from(newEdges.get(k))[0] || 'FLOW';
+          edgeDiffs.push({
+            status: 'unchanged',
+            src,
+            tgt,
+            action: act,
+            line: `${sanitizeMermaidId(src)} -->|${act}| ${sanitizeMermaidId(tgt)}`
+          });
+        }
+      });
+
+      // 5. Sinh mã Mermaid Diff
+      const lines = [
+        `flowchart ${orientation}`,
+        '    %% Style highlight Diff chuyên nghiệp',
+        '    classDef addedNode fill:#DCFCE7,stroke:#16A34A,stroke-width:2.5px,color:#14532D,font-weight:bold;',
+        '    classDef removedNode fill:#FEE2E2,stroke:#DC2626,stroke-width:2px,stroke-dasharray: 5 5,color:#7F1D1D;',
+        '    classDef modifiedNode fill:#FEF3C7,stroke:#D97706,stroke-width:2.5px,color:#78350F,font-weight:bold;',
+        '    classDef unchangedNode fill:#F8FAFC,stroke:#94A3B8,stroke-width:1.5px,color:#334155;'
+      ];
+
+      const allTargetsSet = new Set([...oldTargets.keys(), ...newTargets.keys()]);
+      const allSourcesSet = new Set([...oldSources, ...newSources]);
+
+      const pureSources = Array.from(allTables).filter(t => !allTargetsSet.has(t)).sort();
+      const intermediate = Array.from(allTables).filter(t => allTargetsSet.has(t) && allSourcesSet.has(t)).sort();
+      const pureTargets = Array.from(allTables).filter(t => allTargetsSet.has(t) && !allSourcesSet.has(t)).sort();
+
+      function renderDiffNode(t) {
+        const diff = nodeDiffs.get(t);
+        const nid = sanitizeMermaidId(t);
+        if (!diff) return `${nid}[("${t}")]:::unchangedNode`;
+        if (diff.status === 'added') {
+          return `${nid}[("🟢 [+ MỚI] ${t}")]:::addedNode`;
+        } else if (diff.status === 'removed') {
+          return `${nid}[("🔴 [- ĐÃ BỎ] ${t}")]:::removedNode`;
+        } else if (diff.status === 'modified') {
+          return `${nid}[("🟡 [⚠️ ĐỔI NGUỒN] ${t}")]:::modifiedNode`;
+        } else {
+          return `${nid}[("${t}")]:::unchangedNode`;
+        }
+      }
+
+      if (pureSources.length > 0) {
+        lines.push('    subgraph LAYER_SRC ["📥 Tầng Nguồn Dữ Liệu (Source Layer)"]');
+        pureSources.forEach(t => lines.push(`        ${renderDiffNode(t)}`));
+        lines.push('    end');
+      }
+
+      if (intermediate.length > 0) {
+        lines.push('    subgraph LAYER_INT ["⚙️ Tầng Trung Gian / Staging (Intermediate)"]');
+        intermediate.forEach(t => lines.push(`        ${renderDiffNode(t)}`));
+        lines.push('    end');
+      }
+
+      if (pureTargets.length > 0) {
+        lines.push('    subgraph LAYER_TGT ["📤 Tầng Đích / Data Mart (Target Layer)"]');
+        pureTargets.forEach(t => lines.push(`        ${renderDiffNode(t)}`));
+        lines.push('    end');
+      }
+
+      lines.push('    subgraph LEGEND ["🏷️ CHÚ THÍCH SO SÁNH (DIFF LEGEND)"]');
+      lines.push('        direction LR');
+      lines.push('        leg_add["🟢 [+ MỚI] Bổ sung"]:::addedNode');
+      lines.push('        leg_mod["🟡 [⚠️ ĐỔI NGUỒN] Cập nhật"]:::modifiedNode');
+      lines.push('        leg_del["🔴 [- ĐÃ BỎ] Loại bỏ"]:::removedNode');
+      lines.push('        leg_same["⚪ Giữ nguyên"]:::unchangedNode');
+      lines.push('    end');
+
+      lines.push('');
+      lines.push('    %% Các luồng dữ liệu (Data Flows)');
+      edgeDiffs.forEach(e => lines.push('    ' + e.line));
+
+      let addedCount = 0;
+      let removedCount = 0;
+      let modifiedCount = 0;
+      let unchangedCount = 0;
+
+      nodeDiffs.forEach(d => {
+        if (d.status === 'added') addedCount++;
+        else if (d.status === 'removed') removedCount++;
+        else if (d.status === 'modified') modifiedCount++;
+        else unchangedCount++;
+      });
+
+      return {
+        mermaid_code: lines.join('
+'),
+        nodeDiffs: Array.from(nodeDiffs.values()),
+        edgeDiffs: edgeDiffs,
+        summary: {
+          addedCount,
+          removedCount,
+          modifiedCount,
+          unchangedCount,
+          addedEdgesCount: edgeDiffs.filter(e => e.status === 'added').length,
+          removedEdgesCount: edgeDiffs.filter(e => e.status === 'removed').length,
+          totalEdgesCount: edgeDiffs.length
+        }
+      };
+    }
+
+    async function generatePipelineDiffDiagram() {
+      const oldInput = document.getElementById('lineage-sql-old-input');
+      const newInput = document.getElementById('lineage-sql-new-input');
+      const oldSql = oldInput ? oldInput.value.trim() : '';
+      const newSql = newInput ? newInput.value.trim() : '';
+
+      if (!oldSql || !newSql) {
+        alert("Vui lòng nhập đầy đủ cả 2 kịch bản: SQL Cũ (Before) và SQL Mới (After) để so sánh!");
+        return;
+      }
+
+      const container = document.getElementById('lineage-mermaid-output');
+      container.innerHTML = `
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; color: #0284C7; gap: 10px;">
+          <div class="spinner" style="width: 32px; height: 32px; border: 3px solid #E0F2FE; border-top-color: #0284C7; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+          <div style="font-weight: 600; font-size: 13px;">Đang so sánh & highlight thay đổi 2 phiên bản SQL pipeline...</div>
+        </div>`;
+
+      setTimeout(async () => {
+        try {
+          const orientation = document.getElementById('lineage-orientation')?.value || 'LR';
+          const includeCtes = document.getElementById('lineage-include-ctes')?.value === '1';
+
+          const oldResult = parseSqlLineageRegex(oldSql, { orientation, includeCtes });
+          const newResult = parseSqlLineageRegex(newSql, { orientation, includeCtes });
+
+          const diffResult = compareSqlPipelines(oldResult, newResult, { orientation, includeCtes });
+          currentMermaidCode = diffResult.mermaid_code;
+
+          const codeOutput = document.getElementById('lineage-code-output');
+          if (codeOutput) codeOutput.value = currentMermaidCode;
+
+          if (window.mermaid) {
+            const renderId = 'mermaid-diff-' + Date.now();
+            const renderRes = await mermaid.render(renderId, currentMermaidCode);
+            currentLineageSvg = renderRes.svg;
+            container.innerHTML = renderRes.svg;
+            resetLineageZoom();
+          }
+
+          updateDiffQuickStats(diffResult.summary);
+          renderDiffImpactReport(diffResult);
+
+          showToast(`✓ Đã so sánh: +${diffResult.summary.addedCount} mới, -${diffResult.summary.removedCount} đã bỏ, ~${diffResult.summary.modifiedCount} đổi nguồn.`);
+        } catch (err) {
+          console.error("Diff Lineage Error:", err);
+          container.innerHTML = `
+            <div style="color: #DC2626; padding: 24px; text-align: left; background: #FEF2F2; border-radius: 8px; border: 1px solid #FECACA;">
+              <h4 style="margin: 0 0 8px 0;">❌ Lỗi khi so sánh sơ đồ luồng:</h4>
+              <pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px;">${err.message}</pre>
+            </div>`;
+        }
+      }, 50);
+    }
+
+    function updateDiffQuickStats(summary) {
+      const box = document.getElementById('lineage-quick-stats');
+      if (!box || !summary) return;
+      box.innerHTML = `
+        <div style="font-weight: 700; color: #334155; margin-bottom: 4px;">🔀 TỔNG KẾT SO SÁNH & THAY ĐỔI (DIFF SUMMARY):</div>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+          <span style="color: #16A34A;">🟢 <b>${summary.addedCount}</b> Bảng Mới</span>
+          <span style="color: #DC2626;">🔴 <b>${summary.removedCount}</b> Bảng Đã Bỏ</span>
+          <span style="color: #D97706;">🟡 <b>${summary.modifiedCount}</b> Bảng Đổi Nguồn</span>
+          <span style="color: #64748B;">⚪ <b>${summary.unchangedCount}</b> Giữ Nguyên</span>
+          <span style="color: #0369A1;">🔗 <b>${summary.totalEdgesCount}</b> Luồng (${summary.addedEdgesCount > 0 ? '+' + summary.addedEdgesCount + ' mới' : ''}${summary.removedEdgesCount > 0 ? ', -' + summary.removedEdgesCount + ' bỏ' : ''})</span>
+        </div>
+      `;
+      box.style.display = 'block';
+    }
+
+    function renderDiffImpactReport(diffResult) {
+      const table = document.getElementById('lineage-matrix-table');
+      const tbody = document.getElementById('lineage-matrix-tbody');
+      if (!table || !tbody) return;
+
+      const thead = table.querySelector('thead');
+      if (thead) {
+        thead.innerHTML = `
+          <tr>
+            <th style="width: 130px; text-align: center;">Trạng Thái</th>
+            <th style="font-weight: 700; width: 220px;">Tên Bảng / Đối Tượng</th>
+            <th style="width: 140px;">Thao Tác</th>
+            <th style="color: #0369A1;">Thay Đổi Nguồn Cấp (Cũ ➔ Mới)</th>
+            <th style="color: #D97706;">Đánh Giá Tác Động (Impact)</th>
+          </tr>`;
+      }
+
+      const nodeDiffs = diffResult.nodeDiffs || [];
+      if (nodeDiffs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #94A3B8; padding: 20px;">Không phát hiện thay đổi</td></tr>';
+        return;
+      }
+
+      const order = { modified: 1, added: 2, removed: 3, unchanged: 4 };
+      nodeDiffs.sort((a, b) => (order[a.status] || 9) - (order[b.status] || 9));
+
+      let html = '';
+      nodeDiffs.forEach(d => {
+        let statusBadge = '';
+        let rowBg = '';
+        let impactText = '';
+
+        if (d.status === 'added') {
+          statusBadge = '<span style="background: #DCFCE7; color: #166534; padding: 3px 8px; border-radius: 4px; font-weight: 700; font-size: 11px; display: inline-block;">🟢 BẢNG MỚI</span>';
+          rowBg = 'background: #F0FDF4;';
+          impactText = '<span style="color: #166534; font-weight: 600;">✓ Bổ sung bảng/tác vụ mới vào luồng pipeline.</span>';
+        } else if (d.status === 'removed') {
+          statusBadge = '<span style="background: #FEE2E2; color: #991B1B; padding: 3px 8px; border-radius: 4px; font-weight: 700; font-size: 11px; display: inline-block;">🔴 ĐÃ LOẠI BỎ</span>';
+          rowBg = 'background: #FEF2F2;';
+          impactText = '<span style="color: #991B1B; font-weight: 600;">✕ Gỡ bỏ khỏi luồng. Cần xác nhận không còn job phụ thuộc.</span>';
+        } else if (d.status === 'modified') {
+          statusBadge = '<span style="background: #FEF3C7; color: #92400E; padding: 3px 8px; border-radius: 4px; font-weight: 700; font-size: 11px; display: inline-block;">🟡 ĐỔI NGUỒN CẤP</span>';
+          rowBg = 'background: #FFFBEB;';
+          impactText = `<span style="color: #B45309; font-weight: 700;">⚠️ Nguồn cấp thay đổi:</span> <span style="font-size: 11px; color: #78350F;">+${d.addedSources.length} nguồn mới, -${d.removedSources.length} nguồn gỡ bỏ. Cần test kiểm thử dữ liệu!</span>`;
+        } else {
+          statusBadge = '<span style="background: #F1F5F9; color: #475569; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 11px; display: inline-block;">⚪ GIỮ NGUYÊN</span>';
+          rowBg = '';
+          impactText = '<span style="color: #64748B;">Luồng ổn định, logic không đổi.</span>';
+        }
+
+        let sourcesHtml = '';
+        if (d.status === 'modified') {
+          const addedTags = d.addedSources.map(s => `<span style="background: #DCFCE7; color: #166534; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin: 2px; display: inline-block; font-weight: 700;">+ ${s}</span>`).join('');
+          const removedTags = d.removedSources.map(s => `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin: 2px; display: inline-block; text-decoration: line-through;">- ${s}</span>`).join('');
+          const unchangedTags = d.newSources.filter(s => !d.addedSources.includes(s)).map(s => `<span style="background: #F1F5F9; color: #475569; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin: 2px; display: inline-block;">${s}</span>`).join('');
+          sourcesHtml = addedTags + removedTags + unchangedTags;
+        } else if (d.status === 'added') {
+          sourcesHtml = d.newSources.length > 0
+            ? d.newSources.map(s => `<span style="background: #DCFCE7; color: #166534; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin: 2px; display: inline-block; font-weight: 700;">+ ${s}</span>`).join('')
+            : '<i style="color: #94A3B8;">(Nguồn khởi tạo / Đầu vào)</i>';
+        } else if (d.status === 'removed') {
+          sourcesHtml = d.oldSources.length > 0
+            ? d.oldSources.map(s => `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin: 2px; display: inline-block; text-decoration: line-through;">- ${s}</span>`).join('')
+            : '<i style="color: #94A3B8;">(Nguồn cũ đã bỏ)</i>';
+        } else {
+          sourcesHtml = d.newSources.length > 0
+            ? d.newSources.map(s => `<span style="background: #E0F2FE; color: #0369A1; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin: 2px; display: inline-block;">${s}</span>`).join('')
+            : '<i style="color: #94A3B8;">(Nguồn khởi tạo)</i>';
+        }
+
+        const actionText = (d.actions && d.actions.length > 0) ? d.actions.join(', ') : 'SELECT';
+
+        html += `
+          <tr style="${rowBg}">
+            <td style="text-align: center;">${statusBadge}</td>
+            <td style="font-family: Consolas, monospace; font-weight: 700; color: #0F172A;">${d.name}</td>
+            <td style="font-weight: 600; color: #334155;">${actionText}</td>
+            <td>${sourcesHtml || '<span style="color: #94A3B8;">-</span>'}</td>
+            <td>${impactText}</td>
+          </tr>`;
+      });
+
       tbody.innerHTML = html;
     }
 
@@ -4774,7 +5438,11 @@ VN0030001\tCIF00009555\t0033004455001\t45,600,000.00\t2026-09-21\t20260921`;
         } else if (currentActiveTab === 'docgen') {
           generateWordDocFromWeb();
         } else if (currentActiveTab === 'lineage') {
-          generateSqlLineageDiagram();
+          if (currentLineageMode === 'diff') {
+            generatePipelineDiffDiagram();
+          } else {
+            generateSqlLineageDiagram();
+          }
         }
       }
     });
