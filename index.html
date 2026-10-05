@@ -10,6 +10,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
   <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <style>
     :root {
       --msb-orange: #F26522;
@@ -167,6 +168,9 @@
         </button>
         <button id="nav-btn-docgen" class="nav-tab" onclick="switchNavTab('docgen')">
           📑 Tool Xuất Tài Liệu (Word)
+        </button>
+        <button id="nav-btn-lineage" class="nav-tab" onclick="switchNavTab('lineage')">
+          🗺️ Tool Vẽ Sơ Đồ Luồng (Data Lineage)
         </button>
       </div>
     </div>
@@ -884,6 +888,195 @@ Dòng 4:          | {%tr endfor %} | (đặt ở ô đầu tiên)
     </div>
   </div>
 
+  <!-- ============================================================== -->
+  <!-- TAB 6: DATA LINEAGE & SQL PIPELINE FLOW VISUALIZER              -->
+  <!-- ============================================================== -->
+  <div id="view-lineage" class="circular-view" style="display: none; gap: 16px;">
+    <!-- Header Control Bar -->
+    <div class="circular-header-bar" style="border-left-color: #0284C7; background: #FFFFFF; flex-direction: column; align-items: stretch; gap: 12px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-weight: 800; font-size: 15px; color: #0369A1;">
+            🗺️ TRÌNH VẼ SƠ ĐỒ LUỒNG DỮ LIỆU SQL PIPELINE (DATA LINEAGE)
+          </span>
+          <span class="badge-orange" style="background: #E0F2FE; color: #0369A1; border: 1px solid #BAE6FD;" id="lineage-status-badge">⚡ 100% Client-Side Engine</span>
+        </div>
+        
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <button class="btn-primary" onclick="generateSqlLineageDiagram()" style="background: #0284C7; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25);">
+            🚀 Vẽ Sơ Đồ Luồng (F5 / Run)
+          </button>
+          <button class="btn-secondary" onclick="syncFromPipelineTab()" title="Lấy các bước từ Tab Pipeline Script sang vẽ sơ đồ">
+            📥 Lấy từ Tab Pipeline Script
+          </button>
+          
+          <div style="display: inline-flex; align-items: center; gap: 4px; background: #FFFFFF; border: 1px solid #CBD5E1; padding: 4px 8px; border-radius: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #475569;">📄 Mẫu thử:</span>
+            <select id="lineage-sample-select" onchange="onLineageSampleChanged()" style="background: #FFFFFF; color: #0369A1; border: none; font-size: 12px; font-weight: 700; outline: none; cursor: pointer;">
+              <option value="bank_3layer">Mẫu 1: Luồng ETL Ngân Hàng (Raw ➔ Silver ➔ Gold Mart)</option>
+              <option value="cte_complex">Mẫu 2: Luồng CTEs Phức Tạp (WITH ... AS)</option>
+              <option value="multi_merge">Mẫu 3: Luồng Đa Bước MERGE & OVERWRITE</option>
+            </select>
+          </div>
+
+          <button class="btn-secondary" onclick="clearLineageInput()" title="Xóa trắng nội dung">
+            🗑️ Xóa Trắng
+          </button>
+        </div>
+      </div>
+      <div style="font-size: 12px; color: #64748B;">
+        💡 <b>Cách dùng:</b> Dán script SQL pipeline (chứa nhiều câu lệnh <code>INSERT INTO</code>, <code>CREATE TABLE/VIEW</code>, <code>MERGE</code>, <code>WITH...AS</code>). Tool sẽ tự động bóc tách quan hệ bảng Nguồn ➔ Đích và vẽ sơ đồ luồng dữ liệu trực quan hoàn toàn trên trình duyệt, không cần backend!
+      </div>
+    </div>
+
+    <!-- Main Workspace: 2 Cột (Trái: Nhập SQL & Cấu Hình | Phải: Canvas Sơ Đồ & Matrix Table) -->
+    <div style="display: grid; grid-template-columns: 420px 1fr; gap: 16px; flex: 1; min-height: 600px;">
+      
+      <!-- Cột Trái: SQL Input & Controls -->
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div class="circular-card" style="flex: 1; display: flex; flex-direction: column; margin-bottom: 0;">
+          <div class="circular-card-header" style="justify-content: space-between;">
+            <span>📝 1. KỊCH BẢN SQL PIPELINE ĐẦU VÀO</span>
+            <span id="lineage-stmt-count-badge" style="font-size: 11px; font-weight: 700; color: #0369A1;">0 câu lệnh</span>
+          </div>
+          <div class="circular-card-body" style="flex: 1; display: flex; flex-direction: column; padding: 10px; gap: 8px;">
+            <textarea id="lineage-sql-input" style="flex: 1; width: 100%; min-height: 280px; font-family: 'Consolas', monospace; font-size: 12px; padding: 10px; border-radius: 6px; border: 1px solid #CBD5E1; resize: vertical; line-height: 1.5;" placeholder="Dán các câu lệnh SQL của pipeline tại đây (phân cách bằng dấu chấm phẩy ;)...&#10;&#10;Ví dụ:&#10;INSERT INTO silver.customer_daily&#10;SELECT cif, name, branch FROM raw.t24_customer;&#10;&#10;INSERT OVERWRITE TABLE gold.mart_customer_summary&#10;SELECT c.cif, sum(t.amt) FROM silver.customer_daily c&#10;JOIN silver.transactions t ON c.cif = t.customer_cif&#10;GROUP BY c.cif;"></textarea>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #64748B;">
+              <span>💡 Hỗ trợ: Presto, Spark SQL, Hive, Oracle</span>
+              <label class="btn-secondary" style="padding: 2px 8px; font-size: 11px; cursor: pointer;">
+                📂 Tải file .sql
+                <input type="file" id="lineage-file-upload" accept=".sql,.txt" style="display: none;" onchange="handleLineageFileUpload(event)">
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card Tùy Chọn Hiển Thị Sơ Đồ -->
+        <div class="circular-card" style="margin-bottom: 0;">
+          <div class="circular-card-header">
+            <span>⚙️ 2. TÙY CHỌN HIỂN THỊ SƠ ĐỒ</span>
+          </div>
+          <div class="circular-card-body" style="display: flex; flex-direction: column; gap: 10px; padding: 12px 16px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div class="form-group-inline">
+                <label class="field-label">Hướng Sơ Đồ</label>
+                <select id="lineage-orientation" class="field-select" onchange="generateSqlLineageDiagram()">
+                  <option value="LR" selected>Trái ➔ Phải (Ngang - Khuyên Dùng)</option>
+                  <option value="TD">Trên ➔ Dưới (Dọc)</option>
+                </select>
+              </div>
+              <div class="form-group-inline">
+                <label class="field-label">Gom Nhóm (Grouping)</label>
+                <select id="lineage-grouping" class="field-select" onchange="generateSqlLineageDiagram()">
+                  <option value="layer" selected>Phân tầng (Source ➔ Stage ➔ Mart)</option>
+                  <option value="schema">Theo Schema / Database</option>
+                  <option value="none">Không gom nhóm (Phẳng)</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div class="form-group-inline">
+                <label class="field-label">Chi Tiết CTEs (WITH...AS)</label>
+                <select id="lineage-include-ctes" class="field-select" onchange="generateSqlLineageDiagram()">
+                  <option value="0" selected>Ẩn CTE (Chỉ hiện bảng vật lý)</option>
+                  <option value="1">Hiện cả CTEs (Chi tiết chuyên sâu)</option>
+                </select>
+              </div>
+              <div class="form-group-inline">
+                <label class="field-label">Dialect Parser</label>
+                <select id="lineage-dialect" class="field-select" onchange="generateSqlLineageDiagram()">
+                  <option value="spark" selected>Spark SQL / Hive</option>
+                  <option value="presto">Presto / Trino</option>
+                  <option value="oracle">Oracle</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Thống kê nhanh sau khi phân tích -->
+            <div id="lineage-quick-stats" style="display: none; background: #F8FAFC; border: 1px solid #E2E8F0; padding: 8px 12px; border-radius: 6px; font-size: 11px;">
+              <div style="font-weight: 700; color: #334155; margin-bottom: 4px;">📊 TỔNG KẾT LUỒNG DỮ LIỆU:</div>
+              <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <span style="color: #0369A1;">📥 <b><span id="stat-src-count">0</span></b> Bảng Nguồn</span>
+                <span style="color: #EA580C;">⚙️ <b><span id="stat-int-count">0</span></b> Trung Gian/CTE</span>
+                <span style="color: #047857;">📤 <b><span id="stat-tgt-count">0</span></b> Bảng Đích</span>
+                <span style="color: #475569;">🔗 <b><span id="stat-link-count">0</span></b> Liên Kết</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cột Phải: Visual Diagram Canvas & Matrix Table -->
+      <div class="circular-card" style="flex: 1; display: flex; flex-direction: column; margin-bottom: 0;">
+        <div class="circular-card-header" style="justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <!-- Tabs chuyển đổi giữa Sơ đồ và Bảng Ma trận -->
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <button id="btn-tab-diagram" class="btn-primary" onclick="switchLineageDisplay('diagram')" style="padding: 4px 12px; font-size: 12px; background: #0284C7;">
+              📊 Sơ Đồ Luồng (Graph)
+            </button>
+            <button id="btn-tab-matrix" class="btn-secondary" onclick="switchLineageDisplay('matrix')" style="padding: 4px 12px; font-size: 12px;">
+              📋 Bảng Ma Trận (Matrix)
+            </button>
+            <button id="btn-tab-mermaid-code" class="btn-secondary" onclick="switchLineageDisplay('code')" style="padding: 4px 12px; font-size: 12px;">
+              💻 Mã Mermaid
+            </button>
+          </div>
+
+          <!-- Toolbar Zoom, Pan, Export -->
+          <div id="lineage-graph-tools" style="display: flex; align-items: center; gap: 6px;">
+            <button class="btn-secondary" onclick="zoomLineage(1.2)" title="Phóng to" style="padding: 4px 8px; font-size: 12px;">🔍 +</button>
+            <button class="btn-secondary" onclick="zoomLineage(0.8)" title="Thu nhỏ" style="padding: 4px 8px; font-size: 12px;">🔍 -</button>
+            <button class="btn-secondary" onclick="resetLineageZoom()" title="Vừa khung" style="padding: 4px 8px; font-size: 12px;">🔄 100%</button>
+            <button class="btn-copy" onclick="copyMermaidCode()" title="Sao chép mã Mermaid" style="padding: 4px 10px; font-size: 12px;">📋 Copy Code</button>
+            <button class="btn-secondary" onclick="exportLineageSVG()" title="Xuất file vector SVG" style="padding: 4px 10px; font-size: 12px;">📐 SVG</button>
+            <button class="btn-primary" onclick="exportLineagePNG()" title="Xuất ảnh PNG chất lượng cao" style="padding: 4px 12px; font-size: 12px; background: #059669;">📷 Tải Ảnh PNG</button>
+          </div>
+        </div>
+
+        <div class="circular-card-body" style="flex: 1; display: flex; flex-direction: column; padding: 0; position: relative; overflow: hidden; background: #FAFAFA;">
+          
+          <!-- View 1: Canvas Sơ đồ Đồ Họa -->
+          <div id="lineage-view-diagram" style="flex: 1; width: 100%; height: 100%; overflow: auto; padding: 20px; display: flex; align-items: center; justify-content: center; min-height: 480px;">
+            <div id="lineage-mermaid-viewport" style="transform-origin: center center; transition: transform 0.15s ease-out; width: 100%; display: flex; align-items: center; justify-content: center;">
+              <div id="lineage-mermaid-output" style="width: 100%; text-align: center;">
+                <div style="color: #64748B; font-size: 13px; padding: 40px;">
+                  ⏳ Nhấn <b>"🚀 Vẽ Sơ Đồ Luồng"</b> hoặc chọn <b>Mẫu thử</b> để xem trực quan hóa kịch bản SQL pipeline!
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- View 2: Bảng Ma Trận Lineage -->
+          <div id="lineage-view-matrix" style="display: none; flex: 1; padding: 16px; overflow-y: auto;">
+            <div class="col-table-wrapper" style="max-height: 520px;">
+              <table class="col-table" id="lineage-matrix-table">
+                <thead>
+                  <tr>
+                    <th style="width: 50px; text-align: center;">STT</th>
+                    <th style="width: 140px;">Thao Tác (Action)</th>
+                    <th style="color: #047857;">Bảng Đích (Target)</th>
+                    <th style="color: #0369A1;">Bảng Nguồn Phụ Thuộc (Sources)</th>
+                    <th style="color: #7E22CE;">CTEs Sử Dụng</th>
+                  </tr>
+                </thead>
+                <tbody id="lineage-matrix-tbody">
+                  <tr><td colspan="5" style="text-align: center; color: #94A3B8; padding: 20px;">Chưa có dữ liệu</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- View 3: Khung Mã Mermaid -->
+          <div id="lineage-view-code" style="display: none; flex: 1; padding: 12px; flex-direction: column;">
+            <textarea id="lineage-code-output" readonly style="flex: 1; width: 100%; min-height: 460px; font-family: 'Consolas', monospace; font-size: 12px; background: #0F172A; color: #7EE787; border-radius: 6px; padding: 14px; line-height: 1.5; outline: none; border: none; resize: none;"></textarea>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
 
 
   <div id="toast" class="toast">Thông báo</div>
@@ -1061,6 +1254,220 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
             return out
     except Exception as e:
         return f"__ERROR__:{str(e)}"
+
+def analyze_sql_pipeline_lineage(sql_code, read_dialect="spark", include_ctes=False, grouping_mode="layer", orientation="LR"):
+    import json
+    import re
+    from sqlglot import parse, exp
+
+    def get_table_clean_name(tbl_exp):
+        if not tbl_exp:
+            return ""
+        parts = []
+        if tbl_exp.catalog:
+            parts.append(tbl_exp.catalog)
+        if tbl_exp.db:
+            parts.append(tbl_exp.db)
+        if tbl_exp.name:
+            parts.append(tbl_exp.name)
+        elif hasattr(tbl_exp, 'this') and tbl_exp.this:
+            parts.append(str(tbl_exp.this))
+        res = '.'.join(parts) if parts else str(tbl_exp.sql()).split(' ')[0]
+        return res.replace('`', '').replace('"', '').strip()
+
+    def sanitize_node_id(name):
+        clean = re.sub(r'[^a-zA-Z0-9_]', '_', name).strip('_')
+        return clean or 'node'
+
+    try:
+        statements = []
+        try:
+            statements = parse(sql_code, read=read_dialect or 'spark')
+        except Exception:
+            try:
+                statements = parse(sql_code)
+            except Exception:
+                raw_stmts = [s.strip() for s in sql_code.split(';') if s.strip()]
+                for rs in raw_stmts:
+                    try:
+                        parsed_single = parse(rs, read=read_dialect or 'spark')
+                        statements.extend(parsed_single)
+                    except Exception:
+                        pass
+
+        steps = []
+        all_targets = set()
+        all_sources = set()
+        all_ctes = set()
+
+        for idx, stmt in enumerate(statements):
+            if not stmt:
+                continue
+
+            target = None
+            action = "SELECT"
+            if isinstance(stmt, exp.Create):
+                target = get_table_clean_name(stmt.this)
+                kind = stmt.args.get('kind') or 'TABLE'
+                action = f"CREATE {kind}"
+            elif isinstance(stmt, exp.Insert):
+                target = get_table_clean_name(stmt.this)
+                action = "INSERT OVERWRITE" if stmt.args.get('overwrite') else "INSERT INTO"
+            elif isinstance(stmt, exp.Merge):
+                target = get_table_clean_name(stmt.this)
+                action = "MERGE INTO"
+            elif isinstance(stmt, exp.Update):
+                target = get_table_clean_name(stmt.this)
+                action = "UPDATE"
+            elif isinstance(stmt, exp.Delete):
+                target = get_table_clean_name(stmt.this)
+                action = "DELETE"
+            elif isinstance(stmt, exp.Select):
+                action = "QUERY / SELECT"
+                if stmt.args.get('into'):
+                    target = get_table_clean_name(stmt.args.get('into'))
+                    action = "SELECT INTO"
+
+            # Detect CTEs in statement
+            stmt_ctes = {}
+            for cte in stmt.find_all(exp.CTE):
+                c_name = cte.alias_or_name.strip('`"\'').lower()
+                stmt_ctes[c_name] = cte.alias_or_name.strip('`"\'')
+                all_ctes.add(cte.alias_or_name.strip('`"\''))
+
+            # Detect Source Tables
+            stmt_sources = []
+            seen_sources = set()
+            for tbl in stmt.find_all(exp.Table):
+                t_clean = get_table_clean_name(tbl)
+                if not t_clean:
+                    continue
+                tbl_lower = (tbl.name or t_clean).lower()
+                if target and t_clean.lower() == target.lower():
+                    continue
+                if tbl_lower in stmt_ctes:
+                    if include_ctes and t_clean not in seen_sources:
+                        stmt_sources.append(stmt_ctes[tbl_lower])
+                        seen_sources.add(t_clean)
+                    continue
+                if t_clean not in seen_sources:
+                    stmt_sources.append(t_clean)
+                    seen_sources.add(t_clean)
+                    all_sources.add(t_clean)
+
+            if target:
+                all_targets.add(target)
+
+            steps.append({
+                "step": idx + 1,
+                "action": action,
+                "target": target or f"QUERY_OUTPUT_{idx+1}",
+                "sources": stmt_sources,
+                "ctes": list(stmt_ctes.values())
+            })
+
+        pure_sources = sorted(list(all_sources - all_targets))
+        intermediate = sorted(list((all_sources & all_targets) | (all_ctes if include_ctes else set())))
+        pure_targets = sorted(list(all_targets - all_sources))
+
+        ori = orientation.upper() if orientation in ["LR", "TD", "RL", "BT"] else "LR"
+        mermaid_lines = [
+            f"flowchart {ori}",
+            "    %% Bảng màu phân tầng Data Lineage",
+            "    classDef sourceNode fill:#E0F2FE,stroke:#0284C7,stroke-width:2px,color:#0369A1,font-weight:bold;",
+            "    classDef transNode fill:#FFF7ED,stroke:#EA580C,stroke-width:2px,color:#C2410C,font-weight:bold;",
+            "    classDef targetNode fill:#ECFDF5,stroke:#059669,stroke-width:2px,color:#047857,font-weight:bold;",
+            "    classDef cteNode fill:#F3E8FF,stroke:#9333EA,stroke-width:1.5px,stroke-dasharray: 4 4,color:#7E22CE;"
+        ]
+
+        defined_nodes = set()
+        if grouping_mode == "layer":
+            if pure_sources:
+                mermaid_lines.append('    subgraph LAYER_SRC ["📥 Nguồn Dữ Liệu (Source Tables)"]')
+                for s in pure_sources:
+                    nid = sanitize_node_id(s)
+                    defined_nodes.add(nid)
+                    mermaid_lines.append(f'        {nid}[("{s}")]:::sourceNode')
+                mermaid_lines.append('    end')
+
+            if intermediate:
+                mermaid_lines.append('    subgraph LAYER_INT ["⚙️ Bảng Trung Gian / Staging (Intermediate)"]')
+                for m in intermediate:
+                    nid = sanitize_node_id(m)
+                    defined_nodes.add(nid)
+                    cls_name = "cteNode" if m in all_ctes else "transNode"
+                    shape = f'["{m}"]' if m in all_ctes else f'[("{m}")]'
+                    mermaid_lines.append(f'        {nid}{shape}:::{cls_name}')
+                mermaid_lines.append('    end')
+
+            if pure_targets:
+                mermaid_lines.append('    subgraph LAYER_TGT ["📤 Bảng Đích / Data Mart (Target Tables)"]')
+                for t in pure_targets:
+                    nid = sanitize_node_id(t)
+                    defined_nodes.add(nid)
+                    mermaid_lines.append(f'        {nid}[("{t}")]:::targetNode')
+                mermaid_lines.append('    end')
+
+        elif grouping_mode == "schema":
+            schemas = {}
+            for tbl in sorted(list(all_sources | all_targets | (all_ctes if include_ctes else set()))):
+                sch = tbl.split('.')[0] if '.' in tbl else ("CTE" if tbl in all_ctes else "Default")
+                schemas.setdefault(sch, []).append(tbl)
+
+            for sch, tbls in schemas.items():
+                sg_id = sanitize_node_id("sch_" + sch)
+                mermaid_lines.append(f'    subgraph {sg_id} ["📁 Schema: {sch}"]')
+                for t in tbls:
+                    nid = sanitize_node_id(t)
+                    defined_nodes.add(nid)
+                    if t in pure_sources:
+                        cls_name = "sourceNode"
+                    elif t in pure_targets:
+                        cls_name = "targetNode"
+                    elif t in all_ctes:
+                        cls_name = "cteNode"
+                    else:
+                        cls_name = "transNode"
+                    shape = f'["{t}"]' if t in all_ctes else f'[("{t}")]'
+                    mermaid_lines.append(f'        {nid}{shape}:::{cls_name}')
+                mermaid_lines.append('    end')
+
+        edge_set = set()
+        for s in steps:
+            tgt = s["target"]
+            tgt_id = sanitize_node_id(tgt)
+            action_label = f"B{s['step']}: {s['action']}"
+            if tgt_id not in defined_nodes:
+                mermaid_lines.append(f'    {tgt_id}[("{tgt}")]:::targetNode')
+                defined_nodes.add(tgt_id)
+
+            for src in s["sources"]:
+                src_id = sanitize_node_id(src)
+                if src_id not in defined_nodes:
+                    mermaid_lines.append(f'    {src_id}[("{src}")]:::sourceNode')
+                    defined_nodes.add(src_id)
+
+                edge_key = (src_id, tgt_id, action_label)
+                if edge_key not in edge_set:
+                    edge_set.add(edge_key)
+                    mermaid_lines.append(f'    {src_id} -->|{action_label}| {tgt_id}')
+
+        mermaid_code = "\n".join(mermaid_lines)
+        return json.dumps({
+            "status": "ok",
+            "mermaid_code": mermaid_code,
+            "steps": steps,
+            "summary": {
+                "source_count": len(pure_sources),
+                "intermediate_count": len(intermediate),
+                "target_count": len(pure_targets),
+                "total_steps": len(steps),
+                "total_links": len(edge_set)
+            }
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({"status": "error", "error": f"{str(e)}\n{traceback.format_exc()}"})
   </script>
 
   <!-- ============================================================== -->
@@ -1101,23 +1508,27 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
       const btnCircular = document.getElementById('nav-btn-circular');
       const btnInsertExcel = document.getElementById('nav-btn-insert-excel');
       const btnDocgen = document.getElementById('nav-btn-docgen');
+      const btnLineage = document.getElementById('nav-btn-lineage');
       const viewTranspiler = document.getElementById('view-transpiler');
       const viewPipeline = document.getElementById('view-pipeline');
       const viewCircular = document.getElementById('view-circular');
       const viewInsertExcel = document.getElementById('view-insert-excel');
+      const viewDocgen = document.getElementById('view-docgen');
+      const viewLineage = document.getElementById('view-lineage');
 
       btnTranspiler.classList.toggle('active', tab === 'transpiler');
       if (btnPipeline) btnPipeline.classList.toggle('active', tab === 'pipeline');
       if (btnCircular) btnCircular.classList.toggle('active', tab === 'circular');
       if (btnInsertExcel) btnInsertExcel.classList.toggle('active', tab === 'insert-excel');
       if (btnDocgen) btnDocgen.classList.toggle('active', tab === 'docgen');
+      if (btnLineage) btnLineage.classList.toggle('active', tab === 'lineage');
 
       viewTranspiler.style.display = tab === 'transpiler' ? 'flex' : 'none';
       if (viewPipeline) viewPipeline.style.display = tab === 'pipeline' ? 'flex' : 'none';
       if (viewCircular) viewCircular.style.display = tab === 'circular' ? 'flex' : 'none';
       if (viewInsertExcel) viewInsertExcel.style.display = tab === 'insert-excel' ? 'flex' : 'none';
-      const viewDocgen = document.getElementById('view-docgen');
       if (viewDocgen) viewDocgen.style.display = tab === 'docgen' ? 'flex' : 'none';
+      if (viewLineage) viewLineage.style.display = tab === 'lineage' ? 'flex' : 'none';
 
       if (tab === 'pipeline' && (!pipelineSteps || pipelineSteps.length === 0)) {
         loadSamplePipeline();
@@ -1130,6 +1541,8 @@ def transpile_sql(sql_code, read_d, write_d, presto_dialect="presto", pretty=Fal
         }
       } else if (tab === 'docgen') {
         initDocGenTab();
+      } else if (tab === 'lineage') {
+        initLineageTab();
       }
     }
 
@@ -3758,17 +4171,8 @@ VN0030001\tCIF00009555\t0033004455001\t45,600,000.00\t2026-09-21\t20260921`;
         });
 
         if (!res.ok) {
-          let errMsg = 'Lỗi ' + res.status;
-          try {
-            const err = await res.json();
-            errMsg = err.error || err.message || errMsg;
-          } catch (_) {
-            try {
-              const txt = await res.text();
-              if (txt) errMsg = txt;
-            } catch (e2) {}
-          }
-          throw new Error(errMsg);
+          const err = await res.json();
+          throw new Error(err.error || err.message || 'Lỗi server');
         }
 
         const blob = await res.blob();
@@ -3800,6 +4204,563 @@ VN0030001\tCIF00009555\t0033004455001\t45,600,000.00\t2026-09-21\t20260921`;
     }
 
 
+    // ==============================================================
+    // TAB 6: DATA LINEAGE & SQL PIPELINE FLOW VISUALIZER LOGIC
+    // ==============================================================
+    let currentLineageResult = null;
+    let currentMermaidCode = '';
+    let currentLineageSvg = '';
+    let lineageZoomLevel = 1.0;
+
+    const LINEAGE_SAMPLES = {
+      bank_3layer: `-- ========================================================\n-- MẪU 1: LUỒNG ETL NGÂN HÀNG CHUẨN 3 TẦNG (RAW -> SILVER -> GOLD)\n-- ========================================================\n\n-- Bước 1: Trích xuất & làm sạch giao dịch từ Core Banking T24\nINSERT INTO silver.t24_trans_cleansed\nSELECT t.trans_id, t.cif_no, t.account_no, t.amount, t.trans_time, t.channel\nFROM raw_t24.fbnk_stmt_entry t\nJOIN raw_t24.fbnk_account a ON t.account_no = a.recid\nWHERE t.booking_date = current_date();\n\n-- Bước 2: Tích hợp thông tin người dùng từ EBank & CIC\nINSERT INTO silver.customer_master_daily\nSELECT c.cif_no, c.full_name, c.id_card, c.phone, cic.credit_score, cic.risk_group\nFROM raw_ebank.ebank_users c\nLEFT JOIN raw_cic.cic_rating_report cic ON c.id_card = cic.national_id\nWHERE c.status = 'ACTIVE';\n\n-- Bước 3: Tổng hợp báo cáo biến động dòng tiền Data Mart theo khách hàng\nINSERT OVERWRITE TABLE gold.mart_customer_turnover_summary\nSELECT \n    m.cif_no,\n    m.full_name,\n    m.risk_group,\n    sum(tx.amount) as total_turnover,\n    count(tx.trans_id) as total_trans_count\nFROM silver.customer_master_daily m\nJOIN silver.t24_trans_cleansed tx ON m.cif_no = tx.cif_no\nGROUP BY m.cif_no, m.full_name, m.risk_group;`,
+
+      cte_complex: `-- ========================================================\n-- MẪU 2: LUỒNG TÍNH TOÁN RỦI RO TÍN DỤNG DÙNG NHIỀU CTES (WITH...AS)\n-- ========================================================\n\nWITH cte_loans AS (\n    SELECT customer_cif, sum(loan_amount) as total_loan_debt\n    FROM silver.contract_lending\n    WHERE status = 'DISBURSED'\n    GROUP BY customer_cif\n),\ncte_cards AS (\n    SELECT cif_no, sum(card_limit) as total_card_limit\n    FROM silver.credit_cards\n    WHERE card_status = 'OPEN'\n    GROUP BY cif_no\n)\nINSERT OVERWRITE TABLE gold.mart_credit_risk_exposure\nSELECT \n    c.cif_no,\n    c.full_name,\n    coalesce(l.total_loan_debt, 0) as total_loan_debt,\n    coalesce(card.total_card_limit, 0) as total_credit_limit,\n    (coalesce(l.total_loan_debt, 0) + coalesce(card.total_card_limit, 0)) as total_exposure\nFROM silver.customer_master_daily c\nLEFT JOIN cte_loans l ON c.cif_no = l.customer_cif\nLEFT JOIN cte_cards card ON c.cif_no = card.cif_no;`,
+
+      multi_merge: `-- ========================================================\n-- MẪU 3: LUỒNG ĐA BƯỚC MERGE INTO & TẠO BẢNG TẠM STAGING\n-- ========================================================\n\n-- Bước 1: Tạo bảng delta số dư cuối ngày\nCREATE TABLE silver.stg_eod_balance_delta AS\nSELECT account_no, sum(amount) as delta_amt\nFROM raw_t24.fbnk_stmt_entry\nWHERE booking_date = current_date()\nGROUP BY account_no;\n\n-- Bước 2: Đồng bộ số dư tích lũy vào bảng số dư hiện tại\nMERGE INTO silver.dim_account_balance AS tgt\nUSING silver.stg_eod_balance_delta AS src\nON tgt.account_no = src.account_no\nWHEN MATCHED THEN UPDATE SET tgt.current_balance = tgt.current_balance + src.delta_amt\nWHEN NOT MATCHED THEN INSERT (account_no, current_balance) VALUES (src.account_no, src.delta_amt);\n\n-- Bước 3: Xuất báo cáo thanh khoản phục vụ Ban Giám Đốc\nINSERT OVERWRITE TABLE gold.mart_daily_liquidity_report\nSELECT b.account_no, b.current_balance, c.customer_type, c.branch_id\nFROM silver.dim_account_balance b\nJOIN silver.customer_master_daily c ON b.account_no = c.cif_no;`
+    };
+
+    function initLineageTab() {
+      const inputEl = document.getElementById('lineage-sql-input');
+      if (inputEl && !inputEl.value.trim()) {
+        loadSampleLineage('bank_3layer');
+      }
+    }
+
+    function onLineageSampleChanged() {
+      const select = document.getElementById('lineage-sample-select');
+      if (select) {
+        loadSampleLineage(select.value);
+      }
+    }
+
+    function loadSampleLineage(type) {
+      const sample = LINEAGE_SAMPLES[type] || LINEAGE_SAMPLES.bank_3layer;
+      const inputEl = document.getElementById('lineage-sql-input');
+      if (inputEl) {
+        inputEl.value = sample;
+        generateSqlLineageDiagram();
+      }
+    }
+
+    function clearLineageInput() {
+      const inputEl = document.getElementById('lineage-sql-input');
+      if (inputEl) inputEl.value = '';
+      document.getElementById('lineage-mermaid-output').innerHTML = `
+        <div style="color: #64748B; font-size: 13px; padding: 40px;">
+          Đã xóa trắng. Hãy dán SQL hoặc nhấn "Mẫu thử" để vẽ lại!
+        </div>`;
+      document.getElementById('lineage-stmt-count-badge').innerText = '0 câu lệnh';
+      document.getElementById('lineage-quick-stats').style.display = 'none';
+      document.getElementById('lineage-matrix-tbody').innerHTML = '<tr><td colspan="5" style="text-align: center; color: #94A3B8; padding: 20px;">Chưa có dữ liệu</td></tr>';
+      document.getElementById('lineage-code-output').value = '';
+      currentLineageResult = null;
+      currentMermaidCode = '';
+      currentLineageSvg = '';
+      showToast("Đã xóa trắng khung nhập SQL!");
+    }
+
+    function syncFromPipelineTab() {
+      if (!pipelineSteps || pipelineSteps.length === 0) {
+        if (typeof loadSamplePipeline === 'function') {
+          loadSamplePipeline();
+        }
+      }
+      if (!pipelineSteps || pipelineSteps.length === 0) {
+        alert("Không tìm thấy bước thực thi nào trong Tab Pipeline Script!");
+        return;
+      }
+      let sqlCombined = "";
+      pipelineSteps.forEach((step, idx) => {
+        let code = (step.sql_code || "").trim();
+        code = code.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, "$1");
+        if (!code.endsWith(';')) code += ';';
+
+        const rawTbl = (step.table_name || "").replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, "$1").trim();
+        const upperCode = code.toUpperCase();
+        if (rawTbl && !upperCode.startsWith('INSERT') && !upperCode.startsWith('CREATE') && !upperCode.startsWith('MERGE')) {
+          code = `INSERT INTO ${rawTbl}\n` + code;
+        }
+        sqlCombined += `-- Bước ${step.order_id || (idx + 1)}: ${step.action || 'INSERT'} -> ${rawTbl}\n` + code + "\n\n";
+      });
+
+      const inputEl = document.getElementById('lineage-sql-input');
+      if (inputEl) {
+        inputEl.value = sqlCombined.trim();
+        generateSqlLineageDiagram();
+        showToast(`✓ Đã đồng bộ ${pipelineSteps.length} bước từ Tab Pipeline Script sang vẽ sơ đồ!`);
+      }
+    }
+
+    function handleLineageFileUpload(e) {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const content = evt.target.result;
+        const inputEl = document.getElementById('lineage-sql-input');
+        if (inputEl) {
+          inputEl.value = content;
+          generateSqlLineageDiagram();
+          showToast(`✓ Đã tải file: ${file.name}`);
+        }
+      };
+      reader.readAsText(file, "UTF-8");
+      e.target.value = "";
+    }
+
+    function switchLineageDisplay(mode) {
+      const viewDiagram = document.getElementById('lineage-view-diagram');
+      const viewMatrix = document.getElementById('lineage-view-matrix');
+      const viewCode = document.getElementById('lineage-view-code');
+      const tools = document.getElementById('lineage-graph-tools');
+
+      const btnDiagram = document.getElementById('btn-tab-diagram');
+      const btnMatrix = document.getElementById('btn-tab-matrix');
+      const btnCode = document.getElementById('btn-tab-mermaid-code');
+
+      viewDiagram.style.display = mode === 'diagram' ? 'flex' : 'none';
+      viewMatrix.style.display = mode === 'matrix' ? 'block' : 'none';
+      viewCode.style.display = mode === 'code' ? 'flex' : 'none';
+
+      if (tools) tools.style.display = mode === 'diagram' ? 'flex' : 'none';
+
+      btnDiagram.className = mode === 'diagram' ? 'btn-primary' : 'btn-secondary';
+      btnMatrix.className = mode === 'matrix' ? 'btn-primary' : 'btn-secondary';
+      btnCode.className = mode === 'code' ? 'btn-primary' : 'btn-secondary';
+
+      if (mode === 'diagram' && currentMermaidCode) {
+        resetLineageZoom();
+      }
+    }
+
+    function cleanLineageTable(str) {
+      if (!str) return '';
+      return str.replace(/[`"'\(\)]/g, '').trim();
+    }
+
+    function sanitizeMermaidId(name) {
+      return (name || 'node').replace(/[^a-zA-Z0-9_]/g, '_').replace(/^_+|_+$/g, '') || 'node';
+    }
+
+    // Client-side regex engine (Fallback / Lightning fast)
+    function parseSqlLineageRegex(sqlCode, options = {}) {
+      const orientation = options.orientation || 'LR';
+      const groupingMode = options.grouping || 'layer';
+      const includeCtes = !!options.includeCtes;
+
+      const cleanSql = sqlCode
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/--.*$/gm, '')
+        .trim();
+
+      const rawStmts = cleanSql.split(';').map(s => s.trim()).filter(s => s.length > 0);
+      const steps = [];
+      const allTargets = new Set();
+      const allSources = new Set();
+      const allCtes = new Set();
+
+      rawStmts.forEach((stmt, idx) => {
+        let action = 'SELECT';
+        let target = null;
+
+        const createMatch = stmt.match(/CREATE\s+(?:OR\s+REPLACE\s+)?(?:TEMPORARY\s+|TEMP\s+)?(TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?([`"a-zA-Z0-9_.]+)/i);
+        const insertMatch = stmt.match(/INSERT\s+(INTO|OVERWRITE\s+TABLE|OVERWRITE)\s+([`"a-zA-Z0-9_.]+)/i);
+        const mergeMatch = stmt.match(/MERGE\s+INTO\s+([`"a-zA-Z0-9_.]+)/i);
+        const updateMatch = stmt.match(/UPDATE\s+([`"a-zA-Z0-9_.]+)/i);
+
+        if (createMatch) {
+          action = 'CREATE ' + createMatch[1].toUpperCase();
+          target = cleanLineageTable(createMatch[2]);
+        } else if (insertMatch) {
+          action = insertMatch[1].toUpperCase().includes('OVERWRITE') ? 'INSERT OVERWRITE' : 'INSERT INTO';
+          target = cleanLineageTable(insertMatch[2]);
+        } else if (mergeMatch) {
+          action = 'MERGE INTO';
+          target = cleanLineageTable(mergeMatch[1]);
+        } else if (updateMatch) {
+          action = 'UPDATE';
+          target = cleanLineageTable(updateMatch[1]);
+        }
+
+        if (target) allTargets.add(target);
+
+        // Detect CTEs
+        const stmtCtes = new Set();
+        const cteMatches = [...stmt.matchAll(/(?:WITH|,)\s*([a-zA-Z0-9_]+)\s+AS\s*\(/gi)];
+        cteMatches.forEach(m => {
+          const c = m[1].toLowerCase();
+          stmtCtes.add(c);
+          allCtes.add(m[1]);
+        });
+
+        // Detect Sources (FROM & JOIN)
+        const sources = new Set();
+        const fromJoinMatches = [...stmt.matchAll(/\b(?:FROM|JOIN)\s+([`"a-zA-Z0-9_.]+)/gi)];
+        fromJoinMatches.forEach(m => {
+          const raw = cleanLineageTable(m[1]);
+          if (!raw) return;
+          const upper = raw.toUpperCase();
+          if (['LATERAL', 'UNNEST', 'VALUES', 'TABLE', 'SELECT', 'WHERE', 'SET'].includes(upper)) return;
+          const lower = raw.toLowerCase();
+          if (target && lower === target.toLowerCase()) return;
+          if (stmtCtes.has(lower)) {
+            if (includeCtes) sources.add(raw);
+            return;
+          }
+          sources.add(raw);
+          allSources.add(raw);
+        });
+
+        steps.push({
+          step: idx + 1,
+          action: action,
+          target: target || `QUERY_OUTPUT_${idx + 1}`,
+          sources: Array.from(sources),
+          ctes: Array.from(stmtCtes)
+        });
+      });
+
+      // Build Mermaid
+      const pureSources = Array.from(allSources).filter(s => !allTargets.has(s)).sort();
+      const intermediate = Array.from(allSources).filter(s => allTargets.has(s)).concat(includeCtes ? Array.from(allCtes) : []).sort();
+      const pureTargets = Array.from(allTargets).filter(t => !allSources.has(t)).sort();
+
+      const lines = [
+        `flowchart ${orientation}`,
+        '    %% Bảng màu phân tầng Data Lineage',
+        '    classDef sourceNode fill:#E0F2FE,stroke:#0284C7,stroke-width:2px,color:#0369A1,font-weight:bold;',
+        '    classDef transNode fill:#FFF7ED,stroke:#EA580C,stroke-width:2px,color:#C2410C,font-weight:bold;',
+        '    classDef targetNode fill:#ECFDF5,stroke:#059669,stroke-width:2px,color:#047857,font-weight:bold;',
+        '    classDef cteNode fill:#F3E8FF,stroke:#9333EA,stroke-width:1.5px,stroke-dasharray: 4 4,color:#7E22CE;'
+      ];
+
+      const definedNodes = new Set();
+      if (groupingMode === 'layer') {
+        if (pureSources.length > 0) {
+          lines.push('    subgraph LAYER_SRC ["📥 Nguồn Dữ Liệu (Source Tables)"]');
+          pureSources.forEach(s => {
+            const nid = sanitizeMermaidId(s);
+            definedNodes.add(nid);
+            lines.push(`        ${nid}[("${s}")]:::sourceNode`);
+          });
+          lines.push('    end');
+        }
+
+        if (intermediate.length > 0) {
+          lines.push('    subgraph LAYER_INT ["⚙️ Bảng Trung Gian / Staging (Intermediate)"]');
+          intermediate.forEach(m => {
+            const nid = sanitizeMermaidId(m);
+            definedNodes.add(nid);
+            const isCte = allCtes.has(m);
+            const cls = isCte ? 'cteNode' : 'transNode';
+            const shape = isCte ? `["${m}"]` : `[("${m}")]`;
+            lines.push(`        ${nid}${shape}:::${cls}`);
+          });
+          lines.push('    end');
+        }
+
+        if (pureTargets.length > 0) {
+          lines.push('    subgraph LAYER_TGT ["📤 Bảng Đích / Data Mart (Target Tables)"]');
+          pureTargets.forEach(t => {
+            const nid = sanitizeMermaidId(t);
+            definedNodes.add(nid);
+            lines.push(`        ${nid}[("${t}")]:::targetNode`);
+          });
+          lines.push('    end');
+        }
+      } else if (groupingMode === 'schema') {
+        const schemas = {};
+        const allNodes = new Set([...allSources, ...allTargets, ...(includeCtes ? allCtes : [])]);
+        allNodes.forEach(t => {
+          const sch = t.includes('.') ? t.split('.')[0] : (allCtes.has(t) ? 'CTE' : 'Default');
+          if (!schemas[sch]) schemas[sch] = [];
+          schemas[sch].push(t);
+        });
+
+        Object.keys(schemas).sort().forEach(sch => {
+          const sgId = sanitizeMermaidId('sch_' + sch);
+          lines.push(`    subgraph ${sgId} ["📁 Schema: ${sch}"]`);
+          schemas[sch].forEach(t => {
+            const nid = sanitizeMermaidId(t);
+            definedNodes.add(nid);
+            let cls = 'transNode';
+            if (pureSources.includes(t)) cls = 'sourceNode';
+            else if (pureTargets.includes(t)) cls = 'targetNode';
+            else if (allCtes.has(t)) cls = 'cteNode';
+            const shape = allCtes.has(t) ? `["${t}"]` : `[("${t}")]`;
+            lines.push(`        ${nid}${shape}:::${cls}`);
+          });
+          lines.push('    end');
+        });
+      }
+
+      const edgeSet = new Set();
+      steps.forEach(s => {
+        const tgt = s.target;
+        const tgtId = sanitizeMermaidId(tgt);
+        const actionLabel = `B${s.step}: ${s.action}`;
+        if (!definedNodes.has(tgtId)) {
+          lines.push(`    ${tgtId}[("${tgt}")]:::targetNode`);
+          definedNodes.add(tgtId);
+        }
+
+        s.sources.forEach(src => {
+          const srcId = sanitizeMermaidId(src);
+          if (!definedNodes.has(srcId)) {
+            lines.push(`    ${srcId}[("${src}")]:::sourceNode`);
+            definedNodes.add(srcId);
+          }
+          const key = `${srcId}->${tgtId}->${actionLabel}`;
+          if (!edgeSet.has(key)) {
+            edgeSet.add(key);
+            lines.push(`    ${srcId} -->|${actionLabel}| ${tgtId}`);
+          }
+        });
+      });
+
+      return {
+        status: 'ok',
+        mermaid_code: lines.join('\n'),
+        steps: steps,
+        summary: {
+          source_count: pureSources.length,
+          intermediate_count: intermediate.length,
+          target_count: pureTargets.length,
+          total_steps: steps.length,
+          total_links: edgeSet.size
+        }
+      };
+    }
+
+    async function generateSqlLineageDiagram() {
+      const inputEl = document.getElementById('lineage-sql-input');
+      const sql = inputEl ? inputEl.value.trim() : '';
+      if (!sql) {
+        alert("Vui lòng dán câu lệnh SQL pipeline hoặc chọn Mẫu thử trước!");
+        return;
+      }
+
+      const statusBadge = document.getElementById('lineage-status-badge');
+      if (statusBadge) statusBadge.innerText = '⏳ Đang phân tích...';
+
+      const orientation = document.getElementById('lineage-orientation') ? document.getElementById('lineage-orientation').value : 'LR';
+      const grouping = document.getElementById('lineage-grouping') ? document.getElementById('lineage-grouping').value : 'layer';
+      const includeCtes = document.getElementById('lineage-include-ctes') ? document.getElementById('lineage-include-ctes').value === '1' : false;
+      const dialect = document.getElementById('lineage-dialect') ? document.getElementById('lineage-dialect').value : 'spark';
+
+      let result = null;
+
+      // Thử dùng Pyodide sqlglot AST nếu đã sẵn sàng
+      if (isSqlglotReady && pyodide) {
+        try {
+          pyodide.globals.set("g_lin_sql", sql);
+          pyodide.globals.set("g_lin_dia", dialect);
+          pyodide.globals.set("g_lin_cte", includeCtes);
+          pyodide.globals.set("g_lin_grp", grouping);
+          pyodide.globals.set("g_lin_ori", orientation);
+
+          const rawRes = await pyodide.runPythonAsync(`analyze_sql_pipeline_lineage(g_lin_sql, g_lin_dia, g_lin_cte, g_lin_grp, g_lin_ori)`);
+          const parsedRes = JSON.parse(rawRes);
+          if (parsedRes.status === 'ok') {
+            result = parsedRes;
+            if (statusBadge) statusBadge.innerText = '⚡ WebAssembly AST Lineage';
+          }
+        } catch (err) {
+          console.warn("Pyodide lineage error, falling back to regex:", err);
+        }
+      }
+
+      // Fallback engine
+      if (!result) {
+        result = parseSqlLineageRegex(sql, { orientation, grouping, includeCtes });
+        if (statusBadge) statusBadge.innerText = '⚡ Regex Client-Side Engine';
+      }
+
+      currentLineageResult = result;
+      currentMermaidCode = result.mermaid_code || '';
+
+      // Cập nhật số câu lệnh
+      document.getElementById('lineage-stmt-count-badge').innerText = `${result.steps.length} bước thực thi`;
+
+      // Cập nhật thống kê nhanh
+      updateLineageQuickStats(result.summary);
+
+      // Cập nhật khung mã Mermaid
+      const codeOutput = document.getElementById('lineage-code-output');
+      if (codeOutput) codeOutput.value = currentMermaidCode;
+
+      // Render sơ đồ Mermaid
+      await renderMermaidDiagram(currentMermaidCode);
+
+      // Render bảng ma trận
+      renderLineageMatrix(result.steps);
+
+      showToast(`✓ Đã vẽ sơ đồ luồng dữ liệu (${result.summary.source_count} nguồn ➔ ${result.summary.target_count} đích)!`);
+    }
+
+    async function renderMermaidDiagram(mermaidCode) {
+      const container = document.getElementById('lineage-mermaid-output');
+      if (!container) return;
+
+      try {
+        if (window.mermaid) {
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: 'default',
+            securityLevel: 'loose',
+            flowchart: {
+              useMaxWidth: false,
+              htmlLabels: true,
+              curve: 'basis'
+            }
+          });
+          const id = 'lineage_svg_' + Date.now();
+          const { svg } = await mermaid.render(id, mermaidCode);
+          container.innerHTML = svg;
+          currentLineageSvg = svg;
+          resetLineageZoom();
+        } else {
+          container.innerHTML = `
+            <div style="padding: 20px; text-align: left;">
+              <p style="color: #0369A1; font-weight: bold;">Mã Mermaid đã sinh thành công (Đang tải thư viện đồ họa):</p>
+              <pre style="background: #0F172A; color: #7EE787; padding: 14px; border-radius: 6px; overflow: auto; font-size: 12px;">${escapeHtml(mermaidCode)}</pre>
+            </div>`;
+        }
+      } catch (err) {
+        console.warn("Mermaid render error:", err);
+        container.innerHTML = `
+          <div style="padding: 20px; color: #DC2626; text-align: left;">
+            <b>Lỗi hiển thị sơ đồ:</b> ${err.message || 'Không thể render SVG'}
+            <pre style="background: #FFF1F2; color: #991B1B; padding: 12px; border-radius: 6px; margin-top: 10px; font-size: 11px;">${escapeHtml(mermaidCode)}</pre>
+          </div>`;
+      }
+    }
+
+    function renderLineageMatrix(steps) {
+      const tbody = document.getElementById('lineage-matrix-tbody');
+      if (!tbody) return;
+      if (!steps || steps.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #94A3B8; padding: 20px;">Không có bước nào</td></tr>';
+        return;
+      }
+      let html = '';
+      steps.forEach(s => {
+        const sourcesHtml = s.sources.length > 0 
+          ? s.sources.map(src => `<span style="background: #E0F2FE; color: #0369A1; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin: 2px; display: inline-block; font-weight: 600;">${src}</span>`).join('')
+          : '<i style="color: #94A3B8;">(Không có / Subquery)</i>';
+
+        const ctesHtml = s.ctes && s.ctes.length > 0
+          ? s.ctes.map(c => `<span style="background: #F3E8FF; color: #7E22CE; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin: 2px; display: inline-block;">${c}</span>`).join('')
+          : '<span style="color: #94A3B8;">-</span>';
+
+        html += `
+          <tr>
+            <td style="text-align: center; font-weight: bold; color: var(--msb-orange);">${s.step}</td>
+            <td style="font-weight: 700; color: #1E293B;">${s.action}</td>
+            <td style="font-weight: 700; color: #047857;">${s.target}</td>
+            <td>${sourcesHtml}</td>
+            <td>${ctesHtml}</td>
+          </tr>`;
+      });
+      tbody.innerHTML = html;
+    }
+
+    function updateLineageQuickStats(summary) {
+      const box = document.getElementById('lineage-quick-stats');
+      if (!box || !summary) return;
+      document.getElementById('stat-src-count').innerText = summary.source_count || 0;
+      document.getElementById('stat-int-count').innerText = summary.intermediate_count || 0;
+      document.getElementById('stat-tgt-count').innerText = summary.target_count || 0;
+      document.getElementById('stat-link-count').innerText = summary.total_links || 0;
+      box.style.display = 'block';
+    }
+
+    function zoomLineage(factor) {
+      lineageZoomLevel = Math.max(0.2, Math.min(3.0, lineageZoomLevel * factor));
+      const el = document.getElementById('lineage-mermaid-viewport');
+      if (el) el.style.transform = `scale(${lineageZoomLevel})`;
+    }
+
+    function resetLineageZoom() {
+      lineageZoomLevel = 1.0;
+      const el = document.getElementById('lineage-mermaid-viewport');
+      if (el) el.style.transform = 'scale(1.0)';
+    }
+
+    function copyMermaidCode() {
+      if (!currentMermaidCode) {
+        alert("Chưa có mã sơ đồ Mermaid nào để sao chép!");
+        return;
+      }
+      navigator.clipboard.writeText(currentMermaidCode).then(() => {
+        showToast("✓ Đã sao chép mã Mermaid vào bộ nhớ tạm!");
+      }).catch(err => {
+        alert("Không thể copy: " + err.message);
+      });
+    }
+
+    function exportLineageSVG() {
+      if (!currentLineageSvg) {
+        alert("Chưa có sơ đồ SVG để xuất!");
+        return;
+      }
+      const blob = new Blob([currentLineageSvg], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `SQL_PIPELINE_LINEAGE_${Date.now()}.svg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast("✓ Đã tải file SVG vector!");
+    }
+
+    function exportLineagePNG() {
+      if (!currentLineageSvg) {
+        alert("Chưa có sơ đồ để xuất ảnh PNG!");
+        return;
+      }
+      const svgEl = document.querySelector('#lineage-mermaid-output svg');
+      if (!svgEl) {
+        alert("Không tìm thấy phần tử SVG!");
+        return;
+      }
+
+      try {
+        const svgData = new XMLSerializer().serializeToString(svgEl);
+        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+        const img = new Image();
+
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const scale = 2; // Độ phân giải 2x cho hình nét
+          canvas.width = (svgEl.getBoundingClientRect().width || 1200) * scale;
+          canvas.height = (svgEl.getBoundingClientRect().height || 800) * scale;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          const pngUrl = canvas.toDataURL('image/png');
+          const a = document.createElement('a');
+          a.href = pngUrl;
+          a.download = `SQL_PIPELINE_LINEAGE_${Date.now()}.png`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          showToast("✓ Đã xuất ảnh PNG chất lượng cao!");
+        };
+        img.src = url;
+      } catch (err) {
+        alert("Lỗi xuất ảnh PNG: " + err.message);
+      }
+    }
+
+
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 'Enter') {
         if (currentActiveTab === 'transpiler') {
@@ -3812,6 +4773,8 @@ VN0030001\tCIF00009555\t0033004455001\t45,600,000.00\t2026-09-21\t20260921`;
           generateInsertSQL();
         } else if (currentActiveTab === 'docgen') {
           generateWordDocFromWeb();
+        } else if (currentActiveTab === 'lineage') {
+          generateSqlLineageDiagram();
         }
       }
     });
