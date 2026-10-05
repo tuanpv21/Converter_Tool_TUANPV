@@ -5158,8 +5158,7 @@ LEFT JOIN silver.credit_risk_scoring r ON c.cif_no = r.cif_no;`
       });
 
       return {
-        mermaid_code: lines.join('
-'),
+        mermaid_code: lines.join('\n'),
         nodeDiffs: Array.from(nodeDiffs.values()),
         edgeDiffs: edgeDiffs,
         summary: {
