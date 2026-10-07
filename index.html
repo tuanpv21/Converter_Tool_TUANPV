@@ -4835,7 +4835,7 @@ LEFT JOIN silver.credit_risk_scoring r ON c.cif_no = r.cif_no;`
             securityLevel: 'loose',
             flowchart: {
               useMaxWidth: false,
-              htmlLabels: true,
+              htmlLabels: false,
               curve: 'basis'
             }
           });
@@ -5206,6 +5206,16 @@ LEFT JOIN silver.credit_risk_scoring r ON c.cif_no = r.cif_no;`
           if (codeOutput) codeOutput.value = currentMermaidCode;
 
           if (window.mermaid) {
+            mermaid.initialize({
+              startOnLoad: false,
+              theme: 'default',
+              securityLevel: 'loose',
+              flowchart: {
+                useMaxWidth: false,
+                htmlLabels: false,
+                curve: 'basis'
+              }
+            });
             const renderId = 'mermaid-diff-' + Date.now();
             const renderRes = await mermaid.render(renderId, currentMermaidCode);
             currentLineageSvg = renderRes.svg;
@@ -5382,43 +5392,130 @@ LEFT JOIN silver.credit_risk_scoring r ON c.cif_no = r.cif_no;`
 
     function exportLineagePNG() {
       if (!currentLineageSvg) {
-        alert("Chưa có sơ đồ để xuất ảnh PNG!");
+        alert("Chưa có sơ đồ để xuất ảnh PNG! Hãy vẽ hoặc nạp mẫu sơ đồ trước.");
         return;
       }
       const svgEl = document.querySelector('#lineage-mermaid-output svg');
       if (!svgEl) {
-        alert("Không tìm thấy phần tử SVG!");
+        alert("Không tìm thấy phần tử sơ đồ SVG để xuất ảnh!");
         return;
       }
 
+      showToast("⏳ Đang xử lý và xuất ảnh PNG độ phân giải cao...");
+
       try {
-        const svgData = new XMLSerializer().serializeToString(svgEl);
+        let vbWidth = 1200;
+        let vbHeight = 800;
+
+        if (svgEl.viewBox && svgEl.viewBox.baseVal && svgEl.viewBox.baseVal.width > 0) {
+          vbWidth = svgEl.viewBox.baseVal.width;
+          vbHeight = svgEl.viewBox.baseVal.height;
+        } else if (svgEl.getBBox) {
+          try {
+            const b = svgEl.getBBox();
+            if (b && b.width > 0) {
+              vbWidth = b.width;
+              vbHeight = b.height;
+            }
+          } catch (_) {}
+        } else {
+          const rect = svgEl.getBoundingClientRect();
+          if (rect.width > 0) {
+            vbWidth = rect.width / (lineageZoomLevel || 1);
+            vbHeight = rect.height / (lineageZoomLevel || 1);
+          }
+        }
+
+        // Tạo bản sao SVG để xử lý thuộc tính và loại bỏ foreignObject (nếu có)
+        const clone = svgEl.cloneNode(true);
+        clone.setAttribute('width', vbWidth);
+        clone.setAttribute('height', vbHeight);
+        if (!clone.getAttribute('xmlns')) {
+          clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        }
+
+        // Chuyển đổi foreignObject sang thẻ text SVG thuần túy để tránh lỗi Tainted Canvas trên trình duyệt
+        const fos = clone.querySelectorAll('foreignObject');
+        fos.forEach(fo => {
+          const textContent = fo.textContent || '';
+          const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          textEl.setAttribute('x', fo.getAttribute('x') || '0');
+          textEl.setAttribute('y', fo.getAttribute('y') || '0');
+          textEl.setAttribute('font-family', 'sans-serif');
+          textEl.setAttribute('font-size', '12px');
+          textEl.setAttribute('fill', '#1E293B');
+          textEl.textContent = textContent.trim();
+          if (fo.parentNode) {
+            fo.parentNode.replaceChild(textEl, fo);
+          }
+        });
+
+        const svgData = new XMLSerializer().serializeToString(clone);
         const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(svgBlob);
         const img = new Image();
 
         img.onload = function() {
-          const canvas = document.createElement('canvas');
-          const scale = 2; // Độ phân giải 2x cho hình nét
-          canvas.width = (svgEl.getBoundingClientRect().width || 1200) * scale;
-          canvas.height = (svgEl.getBoundingClientRect().height || 800) * scale;
-          const ctx = canvas.getContext('2d');
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          try {
+            const scale = 2; // Độ phân giải 2x sắc nét
+            const padding = 20;
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round((vbWidth + padding * 2) * scale);
+            canvas.height = Math.round((vbHeight + padding * 2) * scale);
+            const ctx = canvas.getContext('2d');
+            
+            // Vẽ nền trắng sắc nét
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, padding * scale, padding * scale, vbWidth * scale, vbHeight * scale);
+            URL.revokeObjectURL(url);
 
-          const pngUrl = canvas.toDataURL('image/png');
-          const a = document.createElement('a');
-          a.href = pngUrl;
-          a.download = `SQL_PIPELINE_LINEAGE_${Date.now()}.png`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-          showToast("✓ Đã xuất ảnh PNG chất lượng cao!");
+            const downloadImg = (blobOrDataUrl) => {
+              const a = document.createElement('a');
+              a.download = `SQL_PIPELINE_LINEAGE_${Date.now()}.png`;
+              if (typeof blobOrDataUrl === 'string') {
+                a.href = blobOrDataUrl;
+              } else {
+                a.href = URL.createObjectURL(blobOrDataUrl);
+              }
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(() => {
+                a.remove();
+                if (typeof blobOrDataUrl !== 'string') {
+                  URL.revokeObjectURL(a.href);
+                }
+              }, 150);
+              showToast("✓ Đã tải ảnh PNG chất lượng cao thành công!");
+            };
+
+            if (canvas.toBlob) {
+              canvas.toBlob((blob) => {
+                if (blob) {
+                  downloadImg(blob);
+                } else {
+                  downloadImg(canvas.toDataURL('image/png'));
+                }
+              }, 'image/png');
+            } else {
+              downloadImg(canvas.toDataURL('image/png'));
+            }
+          } catch (canvasErr) {
+            URL.revokeObjectURL(url);
+            console.error("Canvas Export Error:", canvasErr);
+            alert("Lỗi khi vẽ ảnh lên canvas: " + canvasErr.message + "\nBạn có thể nhấn nút SVG để tải bản vẽ vector.");
+          }
         };
+
+        img.onerror = function(err) {
+          URL.revokeObjectURL(url);
+          console.error("Image SVG Load Error:", err);
+          alert("Trình duyệt không thể giải mã SVG sang ảnh PNG. Bạn có thể sử dụng nút 'SVG' để tải file vector sắc nét!");
+        };
+
         img.src = url;
       } catch (err) {
+        console.error("Export PNG Error:", err);
         alert("Lỗi xuất ảnh PNG: " + err.message);
       }
     }
